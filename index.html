@@ -348,7 +348,7 @@
         <div class="multiselect-wrapper">
           <div class="multiselect-input" id="inv-ms-input" onclick="document.getElementById('inv-ms-search').focus()">
             <div id="inv-ms-tags"></div>
-            <input class="multiselect-search" id="inv-ms-search" placeholder="搜尋..." oninput="invFilterOptions()" onfocus="invOpenDropdown()" />
+            <input class="multiselect-search" id="inv-ms-search" placeholder="輸入 CAS No. 或 Description 搜尋..." oninput="invFilterOptions()" onfocus="invOpenDropdown()" />
           </div>
           <div class="multiselect-dropdown" id="inv-ms-dropdown"></div>
         </div>
@@ -384,7 +384,7 @@
         <div class="multiselect-wrapper">
           <div class="multiselect-input" id="rec-cas-input" onclick="document.getElementById('rec-cas-search').focus()">
             <div id="rec-cas-tag"></div>
-            <input class="multiselect-search" id="rec-cas-search" placeholder="搜尋物質..." oninput="recFilterOptions()" onfocus="recOpenDropdown()" />
+            <input class="multiselect-search" id="rec-cas-search" placeholder="輸入 CAS No. 或 Description 搜尋..." oninput="recFilterOptions()" onfocus="recOpenDropdown()" />
           </div>
           <div class="multiselect-dropdown" id="rec-cas-dropdown"></div>
         </div>
@@ -409,7 +409,7 @@
         <div class="multiselect-wrapper">
           <div class="multiselect-input" id="pc-ms-input" onclick="document.getElementById('pc-ms-search').focus()">
             <div id="pc-ms-tags"></div>
-            <input class="multiselect-search" id="pc-ms-search" placeholder="搜尋..." oninput="pcFilterOptions()" onfocus="pcOpenDropdown()" />
+            <input class="multiselect-search" id="pc-ms-search" placeholder="輸入 CAS No. 或 Description 搜尋..." oninput="pcFilterOptions()" onfocus="pcOpenDropdown()" />
           </div>
           <div class="multiselect-dropdown" id="pc-ms-dropdown"></div>
         </div>
@@ -428,7 +428,8 @@
     <div class="inv-subpage" id="inv-tab-import">
       <div class="card">
         <h2>上傳官方清單</h2>
-        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:16px;line-height:1.6">上傳 CSV / TXT / PDF 檔案，或直接貼上文字。系統會自動辨識文字中的 CAS No.（格式如 64-17-5）。PDF 僅支援「文字型」檔案（可反白選取文字的那種），掃描/圖片型 PDF 尚無法辨識。</p>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:8px;line-height:1.6">上傳 CSV / TXT / PDF 檔案，或直接貼上文字。系統會自動辨識文字中的 CAS No.（格式如 64-17-5）。PDF 僅支援「文字型」檔案（可反白選取文字的那種），掃描/圖片型 PDF 尚無法辨識。</p>
+        <p style="font-size:0.78rem;color:var(--amber);margin-bottom:16px;line-height:1.6">⚠️ 批次匯入目前僅能自動辨識「有 CAS No.」的物質。清單中無 CAS No.、僅以 Description 表示的物質（例如 EINECS 的 UVCB 物質），請至「紀錄狀態」分頁手動新增。</p>
         <div class="form-grid-2">
           <div><label>目標國家清單 <span style="color:var(--amber)">*</span></label><select id="imp-country"></select></div>
           <div><label>上傳檔案（CSV / TXT / PDF）</label><input type="file" id="imp-file" accept=".csv,.txt,.pdf" onchange="handleImportFile(event)" /><div id="imp-file-status" style="font-size:0.78rem;color:var(--text-muted);margin-top:6px"></div></div>
@@ -607,8 +608,43 @@ const INV_STATUS_DATALIST_ID = 'inv-status-suggestions';
 
 async function ensureSubstancesLoaded(){ if(!allSubstances.length){ const{data}=await sb.from('substance_db').select('cas_no, item_name').order('item_name'); allSubstances=data||[]; } }
 
+/* 識別碼工具：物質可能用 CAS No. 或 Description 辨識（例如 EINECS 的 UVCB／無 CAS 物質） */
+let allDescriptions=[];
+async function ensureDescriptionsLoaded(){
+  const{data}=await sb.from('country_inventory_db').select('description').not('description','is',null);
+  allDescriptions=[...new Set((data||[]).map(r=>r.description).filter(Boolean))].sort();
+}
+function mkKey(kind,val){return kind+'::'+val;}
+function keyKind(k){return k.split('::')[0];}
+function keyVal(k){return k.slice(k.indexOf('::')+2);}
+function keyLabel(k){
+  if(keyKind(k)==='cas'){const s=allSubstances.find(x=>x.cas_no===keyVal(k));return s?s.item_name:keyVal(k);}
+  return keyVal(k);
+}
+/* 產生「搜尋下拉選單」的共用內容：既有 CAS 物質 + 既有 Description + 允許輸入全新 Description */
+function renderIdentifierOptions(q, selectedKeys, onClickFnName){
+  const qq=q.toLowerCase();
+  const casMatches=allSubstances.filter(s=>s.cas_no.toLowerCase().includes(qq)||s.item_name.toLowerCase().includes(qq));
+  const descMatches=allDescriptions.filter(d=>d.toLowerCase().includes(qq));
+  let html='';
+  casMatches.forEach(s=>{
+    const key=mkKey('cas',s.cas_no);
+    html+=`<div class="dropdown-item ${selectedKeys.includes(key)?'selected':''}" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${s.cas_no}</span>${s.item_name}</div>`;
+  });
+  descMatches.forEach(d=>{
+    const key=mkKey('desc',d);
+    html+=`<div class="dropdown-item ${selectedKeys.includes(key)?'selected':''}" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')"><span class="flag-badge" style="margin-right:6px;margin-left:0">無 CAS</span>${d}</div>`;
+  });
+  if(q.trim() && !descMatches.some(d=>d.toLowerCase()===qq) && !casMatches.some(s=>s.cas_no.toLowerCase()===qq)){
+    const newKey=mkKey('desc',q.trim());
+    html+=`<div class="dropdown-item" style="color:var(--green-deep);font-weight:600" onclick="${onClickFnName}('${newKey.replace(/'/g,"\\'")}')">＋ 以 Description 新增：「${q.trim()}」（無 CAS No.）</div>`;
+  }
+  if(!html) html='<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質，可直接輸入 Description 新增</div>';
+  return html;
+}
+
 function initInventoryPage(){
-  ensureSubstancesLoaded().then(()=>{ invRenderDropdown(''); pcRenderDropdown(''); recRenderDropdown(''); });
+  Promise.all([ensureSubstancesLoaded(),ensureDescriptionsLoaded()]).then(()=>{ invRenderDropdown(''); pcRenderDropdown(''); recRenderDropdown(''); });
   loadProductsForQuery();
   loadProductsForBrowse();
   document.getElementById('imp-country').innerHTML = COUNTRY_LIST.map(c=>`<option value="${c}">${COUNTRY_LABEL[c]}</option>`).join('');
@@ -622,40 +658,46 @@ function showInvTab(name){
 }
 
 /* ---- 查詢：多選物質 ---- */
-let invSelectedCAS=[];
+let invSelectedKeys=[];
 function invOpenDropdown(){document.getElementById('inv-ms-dropdown').classList.add('open');invFilterOptions();}
-function invFilterOptions(){invRenderDropdown(document.getElementById('inv-ms-search').value.toLowerCase());}
-function invRenderDropdown(q){const dd=document.getElementById('inv-ms-dropdown');if(!dd)return;const filtered=allSubstances.filter(s=>s.cas_no.toLowerCase().includes(q)||s.item_name.toLowerCase().includes(q));dd.innerHTML=filtered.length?filtered.map(s=>`<div class="dropdown-item ${invSelectedCAS.includes(s.cas_no)?'selected':''}" onclick="invSelectSubstance('${s.cas_no}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${s.cas_no}</span>${s.item_name}</div>`).join(''):'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質</div>';}
-function invSelectSubstance(cas){if(invSelectedCAS.includes(cas))return;invSelectedCAS.push(cas);invRenderTags();document.getElementById('inv-ms-search').value='';invFilterOptions();}
-function invRemoveTag(cas){invSelectedCAS=invSelectedCAS.filter(c=>c!==cas);invRenderTags();invFilterOptions();}
-function invRenderTags(){document.getElementById('inv-ms-tags').innerHTML=invSelectedCAS.map(cas=>{const s=allSubstances.find(x=>x.cas_no===cas);return `<span class="tag">${s?.item_name||cas}<span class="tag-remove" onclick="invRemoveTag('${cas}')">✕</span></span>`;}).join('');}
+function invFilterOptions(){invRenderDropdown(document.getElementById('inv-ms-search').value);}
+function invRenderDropdown(q){const dd=document.getElementById('inv-ms-dropdown');if(!dd)return;dd.innerHTML=renderIdentifierOptions(q,invSelectedKeys,'invSelectSubstance');}
+function invSelectSubstance(key){if(invSelectedKeys.includes(key))return;invSelectedKeys.push(key);invRenderTags();document.getElementById('inv-ms-search').value='';invFilterOptions();}
+function invRemoveTag(key){invSelectedKeys=invSelectedKeys.filter(k=>k!==key);invRenderTags();invFilterOptions();}
+function invRenderTags(){document.getElementById('inv-ms-tags').innerHTML=invSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="invRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');}
 
-async function fetchInvData(casList){
-  const{data:subs}=await sb.from('substance_db').select('cas_no,item_name').in('cas_no',casList);
-  const{data:invs}=await sb.from('country_inventory_db').select('cas_no,country_code,status,remarks').in('cas_no',casList);
-  return {subs:subs||[], invs:invs||[]};
+async function fetchInvData(keys){
+  const casList=keys.filter(k=>keyKind(k)==='cas').map(keyVal);
+  const descList=keys.filter(k=>keyKind(k)==='desc').map(keyVal);
+  const subs=casList.length?(await sb.from('substance_db').select('cas_no,item_name').in('cas_no',casList)).data||[]:[];
+  let invs=[];
+  if(casList.length){invs=invs.concat((await sb.from('country_inventory_db').select('cas_no,description,country_code,status,remarks').in('cas_no',casList)).data||[]);}
+  if(descList.length){invs=invs.concat((await sb.from('country_inventory_db').select('cas_no,description,country_code,status,remarks').in('description',descList)).data||[]);}
+  return {subs, invs};
 }
-function buildInvHeatmapHTML(casList, subs, invs){
-  const subMap={};subs.forEach(s=>{subMap[s.cas_no]=s.item_name;});
-  const lookup={};invs.forEach(r=>{if(!lookup[r.cas_no])lookup[r.cas_no]={};lookup[r.cas_no][r.country_code]=r;});
+function buildInvHeatmapHTML(keys, subs, invs){
+  const subMap={};subs.forEach(s=>{subMap[mkKey('cas',s.cas_no)]=s.item_name;});
+  const lookup={};invs.forEach(r=>{const key=r.cas_no?mkKey('cas',r.cas_no):mkKey('desc',r.description);if(!lookup[key])lookup[key]={};lookup[key][r.country_code]=r;});
   const thead=`<tr><th class="row-header">物質名稱</th>${COUNTRY_LIST.map(c=>`<th>${COUNTRY_LABEL[c]}</th>`).join('')}</tr>`;
-  const tbody=casList.map(cas=>{
+  const tbody=keys.map(key=>{
     const cells=COUNTRY_LIST.map(c=>{
-      const rec=lookup[cas]?.[c];
+      const rec=lookup[key]?.[c];
       const status=rec?rec.status:'—';
       const cls=status==='—'?'hm-na':(INV_STATUS_CLASS[status]||'hm-review');
       const label=INV_STATUS_LABEL[status]||status;
       const title=rec&&rec.remarks?rec.remarks.replace(/"/g,'&quot;'):'';
       return `<td title="${title}"><div class="hm-cell ${cls}"><div class="cell-text">${label}</div></div></td>`;
     }).join('');
-    return `<tr><td class="row-label">${subMap[cas]||cas}<br/><span style="font-size:0.7rem;color:var(--text-muted)">${cas}</span></td>${cells}</tr>`;
+    const displayName=keyKind(key)==='cas'?(subMap[key]||keyVal(key)):keyVal(key);
+    const subLabel=keyKind(key)==='cas'?keyVal(key):'無 CAS No.（Description）';
+    return `<tr><td class="row-label">${displayName}<br/><span style="font-size:0.7rem;color:var(--text-muted)">${subLabel}</span></td>${cells}</tr>`;
   }).join('');
   return `<thead>${thead}</thead><tbody>${tbody}</tbody>`;
 }
 async function runInvQuery(){
-  if(!invSelectedCAS.length)return toast('請至少選擇一個物質',true);
-  const{subs,invs}=await fetchInvData(invSelectedCAS);
-  document.getElementById('inv-heatmap-table').innerHTML=buildInvHeatmapHTML(invSelectedCAS,subs,invs);
+  if(!invSelectedKeys.length)return toast('請至少選擇一個物質',true);
+  const{subs,invs}=await fetchInvData(invSelectedKeys);
+  document.getElementById('inv-heatmap-table').innerHTML=buildInvHeatmapHTML(invSelectedKeys,subs,invs);
   document.getElementById('inv-query-result').style.display='block';
 }
 
@@ -668,28 +710,30 @@ async function loadProductsForQuery(){
 async function runProductQuery(){
   const pid=document.getElementById('inv-product-select').value;
   if(!pid){document.getElementById('inv-product-result').style.display='none';return;}
-  const{data:comp}=await sb.from('product_composition').select('cas_no').eq('product_id',pid);
-  const casList=(comp||[]).map(c=>c.cas_no);
-  if(!casList.length)return toast('此產品尚未設定成分',true);
-  const{subs,invs}=await fetchInvData(casList);
-  document.getElementById('inv-product-heatmap-table').innerHTML=buildInvHeatmapHTML(casList,subs,invs);
+  const{data:comp}=await sb.from('product_composition').select('cas_no,description').eq('product_id',pid);
+  const keys=(comp||[]).map(c=>c.cas_no?mkKey('cas',c.cas_no):mkKey('desc',c.description));
+  if(!keys.length)return toast('此產品尚未設定成分',true);
+  const{subs,invs}=await fetchInvData(keys);
+  document.getElementById('inv-product-heatmap-table').innerHTML=buildInvHeatmapHTML(keys,subs,invs);
   document.getElementById('inv-product-result').style.display='block';
 }
 
 /* ---- 紀錄狀態 ---- */
-let recSelectedCAS=null;
+let recSelectedKey=null;
 function recOpenDropdown(){document.getElementById('rec-cas-dropdown').classList.add('open');recFilterOptions();}
-function recFilterOptions(){recRenderDropdown(document.getElementById('rec-cas-search').value.toLowerCase());}
-function recRenderDropdown(q){const dd=document.getElementById('rec-cas-dropdown');if(!dd)return;const filtered=allSubstances.filter(s=>s.cas_no.toLowerCase().includes(q)||s.item_name.toLowerCase().includes(q));dd.innerHTML=filtered.length?filtered.map(s=>`<div class="dropdown-item" onclick="recSelectSubstance('${s.cas_no}','${s.item_name.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${s.cas_no}</span>${s.item_name}</div>`).join(''):'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質</div>';}
-async function recSelectSubstance(cas,name){
-  recSelectedCAS=cas;
-  document.getElementById('rec-cas-tag').innerHTML=`<span class="tag">${name}<span class="tag-remove" onclick="recClearSubstance()">✕</span></span>`;
+function recFilterOptions(){recRenderDropdown(document.getElementById('rec-cas-search').value);}
+function recRenderDropdown(q){const dd=document.getElementById('rec-cas-dropdown');if(!dd)return;dd.innerHTML=renderIdentifierOptions(q,recSelectedKey?[recSelectedKey]:[],'recSelectSubstance');}
+async function recSelectSubstance(key){
+  recSelectedKey=key;
+  document.getElementById('rec-cas-tag').innerHTML=`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="recClearSubstance()">✕</span></span>`;
   document.getElementById('rec-cas-search').value='';document.getElementById('rec-cas-dropdown').classList.remove('open');
-  const{data}=await sb.from('country_inventory_db').select('*').eq('cas_no',cas);
+  const col=keyKind(key)==='cas'?'cas_no':'description';
+  const{data}=await sb.from('country_inventory_db').select('*').eq(col,keyVal(key));
   const tbody=document.getElementById('inv-rows-record');tbody.innerHTML='';
   if(data&&data.length){data.forEach(r=>addInvRow('record',r));} else {addInvRow('record');}
+  if(keyKind(key)==='desc') await ensureDescriptionsLoaded();
 }
-function recClearSubstance(){recSelectedCAS=null;document.getElementById('rec-cas-tag').innerHTML='';const tbody=document.getElementById('inv-rows-record');tbody.innerHTML='';addInvRow('record');}
+function recClearSubstance(){recSelectedKey=null;document.getElementById('rec-cas-tag').innerHTML='';const tbody=document.getElementById('inv-rows-record');tbody.innerHTML='';addInvRow('record');}
 
 function countrySelect(val=''){return `<select>${COUNTRY_LIST.map(c=>`<option value="${c}" ${c===val?'selected':''}>${COUNTRY_LABEL[c]}</option>`).join('')}</select>`;}
 function invStatusInput(val=''){return `<input type="text" list="${INV_STATUS_DATALIST_ID}" placeholder="例如：Listed" value="${(val||'').replace(/"/g,'&quot;')}"/>`;}
@@ -712,44 +756,49 @@ function getInvRows(target){
   return rows;
 }
 async function submitInvRecord(){
-  if(!recSelectedCAS)return toast('請先選擇物質',true);
+  if(!recSelectedKey)return toast('請先選擇物質',true);
   const rows=getInvRows('record');
   if(!rows.length)return toast('請至少填寫一列國家狀態',true);
-  await sb.from('country_inventory_db').delete().eq('cas_no',recSelectedCAS);
-  const insertRows=rows.map(r=>({...r,cas_no:recSelectedCAS}));
+  const isCas=keyKind(recSelectedKey)==='cas';
+  const col=isCas?'cas_no':'description';
+  const val=keyVal(recSelectedKey);
+  await sb.from('country_inventory_db').delete().eq(col,val);
+  const insertRows=rows.map(r=>({...r, cas_no:isCas?val:null, description:isCas?null:val}));
   const{error}=await sb.from('country_inventory_db').insert(insertRows);
   if(error)return toast('儲存失敗：'+error.message,true);
   toast('清單狀態已儲存！');
+  if(!isCas) ensureDescriptionsLoaded();
 }
 
 /* ---- 產品組合管理 ---- */
-let pcSelectedCAS=[];
+let pcSelectedKeys=[];
 function pcOpenDropdown(){document.getElementById('pc-ms-dropdown').classList.add('open');pcFilterOptions();}
-function pcFilterOptions(){pcRenderDropdown(document.getElementById('pc-ms-search').value.toLowerCase());}
-function pcRenderDropdown(q){const dd=document.getElementById('pc-ms-dropdown');if(!dd)return;const filtered=allSubstances.filter(s=>s.cas_no.toLowerCase().includes(q)||s.item_name.toLowerCase().includes(q));dd.innerHTML=filtered.length?filtered.map(s=>`<div class="dropdown-item ${pcSelectedCAS.includes(s.cas_no)?'selected':''}" onclick="pcSelectSubstance('${s.cas_no}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${s.cas_no}</span>${s.item_name}</div>`).join(''):'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質</div>';}
-function pcSelectSubstance(cas){if(pcSelectedCAS.includes(cas))return;pcSelectedCAS.push(cas);pcRenderTags();pcRenderPctRows();document.getElementById('pc-ms-search').value='';pcFilterOptions();}
-function pcRemoveTag(cas){pcSelectedCAS=pcSelectedCAS.filter(c=>c!==cas);pcRenderTags();pcRenderPctRows();pcFilterOptions();}
-function pcRenderTags(){document.getElementById('pc-ms-tags').innerHTML=pcSelectedCAS.map(cas=>{const s=allSubstances.find(x=>x.cas_no===cas);return `<span class="tag">${s?.item_name||cas}<span class="tag-remove" onclick="pcRemoveTag('${cas}')">✕</span></span>`;}).join('');}
+function pcFilterOptions(){pcRenderDropdown(document.getElementById('pc-ms-search').value);}
+function pcRenderDropdown(q){const dd=document.getElementById('pc-ms-dropdown');if(!dd)return;dd.innerHTML=renderIdentifierOptions(q,pcSelectedKeys,'pcSelectSubstance');}
+function pcSelectSubstance(key){if(pcSelectedKeys.includes(key))return;pcSelectedKeys.push(key);pcRenderTags();pcRenderPctRows();document.getElementById('pc-ms-search').value='';pcFilterOptions();}
+function pcRemoveTag(key){pcSelectedKeys=pcSelectedKeys.filter(k=>k!==key);pcRenderTags();pcRenderPctRows();pcFilterOptions();}
+function pcRenderTags(){document.getElementById('pc-ms-tags').innerHTML=pcSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="pcRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');}
 function pcRenderPctRows(){
-  document.getElementById('pc-pct-rows').innerHTML=pcSelectedCAS.map(cas=>{const s=allSubstances.find(x=>x.cas_no===cas);return `<div class="form-grid-2" style="align-items:end;margin-bottom:8px"><div style="font-size:0.85rem;padding-top:8px">${s?.item_name||cas} <span style="color:var(--text-muted);font-size:0.75rem">(${cas})</span></div><div><input type="text" class="pct-input" data-cas="${cas}" placeholder="%（選填）"/></div></div>`;}).join('');
+  document.getElementById('pc-pct-rows').innerHTML=pcSelectedKeys.map(key=>`<div class="form-grid-2" style="align-items:end;margin-bottom:8px"><div style="font-size:0.85rem;padding-top:8px">${keyLabel(key)} <span style="color:var(--text-muted);font-size:0.75rem">(${keyKind(key)==='cas'?keyVal(key):'無 CAS'})</span></div><div><input type="text" class="pct-input" data-key="${key.replace(/"/g,'&quot;')}" placeholder="%（選填）"/></div></div>`).join('');
 }
 async function submitProduct(){
   const name=document.getElementById('pc-name').value.trim();
   const remarks=document.getElementById('pc-remarks').value.trim();
   if(!name)return toast('請填寫產品名稱',true);
-  if(!pcSelectedCAS.length)return toast('請至少選擇一個成分',true);
+  if(!pcSelectedKeys.length)return toast('請至少選擇一個成分',true);
   const{data:prod,error:e1}=await sb.from('product_db').insert({product_name:name,remarks}).select().single();
   if(e1)return toast('儲存失敗：'+e1.message,true);
-  const rows=pcSelectedCAS.map(cas=>{
-    const pctEl=document.querySelector(`.pct-input[data-cas="${cas}"]`);
+  const rows=pcSelectedKeys.map(key=>{
+    const pctEl=document.querySelector(`.pct-input[data-key="${CSS.escape(key)}"]`);
     const pct=pctEl&&pctEl.value.trim()?parseFloat(pctEl.value.trim()):null;
-    return {product_id:prod.id,cas_no:cas,percentage:pct};
+    const isCas=keyKind(key)==='cas';
+    return {product_id:prod.id, cas_no:isCas?keyVal(key):null, description:isCas?null:keyVal(key), percentage:pct};
   });
   await sb.from('product_composition').insert(rows);
   toast('產品組合已儲存！');
   document.getElementById('pc-name').value='';document.getElementById('pc-remarks').value='';
-  pcSelectedCAS=[];pcRenderTags();pcRenderPctRows();
-  loadProductsForBrowse();loadProductsForQuery();
+  pcSelectedKeys=[];pcRenderTags();pcRenderPctRows();
+  loadProductsForBrowse();loadProductsForQuery();ensureDescriptionsLoaded();
 }
 async function loadProductsForBrowse(){
   const{data:prods}=await sb.from('product_db').select('*').order('product_name');
