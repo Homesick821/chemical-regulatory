@@ -429,11 +429,11 @@
     <div class="inv-subpage" id="inv-tab-import">
       <div class="card">
         <h2>上傳官方清單</h2>
-        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:8px;line-height:1.6">上傳 CSV / TXT / PDF 檔案，或直接貼上文字。系統會自動辨識文字中的 CAS No.（格式如 64-17-5）。PDF 僅支援「文字型」檔案（可反白選取文字的那種），掃描/圖片型 PDF 尚無法辨識。</p>
-        <p style="font-size:0.78rem;color:var(--amber);margin-bottom:16px;line-height:1.6">⚠️ 批次匯入目前僅能自動辨識「有 CAS No.」的物質。清單中無 CAS No.、僅以 Description 表示的物質（例如 EINECS 的 UVCB 物質），請至「紀錄狀態」分頁手動新增。</p>
-        <div class="form-grid-2">
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:8px;line-height:1.6">上傳 CSV / TSV / TXT / PDF 檔案，或直接貼上文字。如果檔案有欄位標題（例如「CAS no.」「Name」「Description」，像官方 EINECS 匯出檔那樣），系統會自動辨識欄位、直接帶入正式物質名稱，並支援無 CAS No. 改用 Description 辨識的物質。若只是單純文字或 PDF，則退回只辨識 CAS No.（格式如 64-17-5）。PDF 僅支援「文字型」檔案，掃描/圖片型 PDF 尚無法辨識。</p>
+        <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6">資料量較大（例如數萬筆）也沒問題，系統會自動分批處理，請耐心等候比對與匯入完成。</p>
+        <div class="form-grid-2" id="imp-country-file-row">
           <div><label>目標國家清單 <span style="color:var(--amber)">*</span></label><select id="imp-country"></select></div>
-          <div><label>上傳檔案（CSV / TXT / PDF）</label><input type="file" id="imp-file" accept=".csv,.txt,.pdf" onchange="handleImportFile(event)" /><div id="imp-file-status" style="font-size:0.78rem;color:var(--text-muted);margin-top:6px"></div></div>
+          <div><label>上傳檔案（CSV / TSV / TXT / PDF）</label><input type="file" id="imp-file" accept=".csv,.tsv,.txt,.pdf" onchange="handleImportFile(event)" /><div id="imp-file-status" style="font-size:0.78rem;color:var(--text-muted);margin-top:6px"></div></div>
         </div>
         <div class="form-full"><label>或直接貼上文字</label><textarea id="imp-text" placeholder="貼上清單文字或 CAS No. 列表..." style="min-height:120px"></textarea></div>
         <button class="btn-secondary" onclick="parseImport()">解析並比對</button>
@@ -617,14 +617,17 @@ async function ensureSubstanceRegistered(cas){
 }
 /* 一次性補齊：把過去已經寫入 country_inventory_db / product_composition，但尚未存在於 substance_db 的 CAS No. 全部補齊 */
 async function backfillSubstanceRegistry(){
-  await Promise.all([ensureKnownCasLoaded(),ensureSubstancesLoaded(true)]);
-  const{data:compCas}=await sb.from('product_composition').select('cas_no').not('cas_no','is',null);
-  const knownSet=new Set(allKnownCas.concat((compCas||[]).map(r=>r.cas_no)));
-  const missing=[...knownSet].filter(c=>c && !allSubstances.some(s=>s.cas_no===c));
+  await ensureSubstancesLoaded(true);
+  const[casRows,compRows]=await Promise.all([
+    fetchAllRows('country_inventory_db','cas_no',{}),
+    fetchAllRows('product_composition','cas_no',{})
+  ]);
+  const knownSet=new Set([...casRows,...compRows].map(r=>r.cas_no).filter(Boolean));
+  const missing=[...knownSet].filter(c=>!allSubstances.some(s=>s.cas_no===c));
   if(!missing.length){toast('物質主檔已經是最新的，沒有需要補齊的 CAS No.');return;}
+  toast(`正在補齊 ${missing.length} 筆物質，請稍候...`);
   const rows=missing.map(c=>({cas_no:c,item_name:c,remarks:'系統自動建立（來自各國清單狀態插件），建議補充正式物質名稱'}));
-  const{error}=await sb.from('substance_db').insert(rows);
-  if(error){toast('補齊失敗：'+error.message,true);return;}
+  await chunkedUpsert('substance_db',rows,{onConflict:'cas_no',ignoreDuplicates:true});
   await ensureSubstancesLoaded(true);
   toast(`已補齊 ${missing.length} 筆物質到物質主檔！`);
   invRenderDropdown(document.getElementById('inv-ms-search')?.value||'');
@@ -895,54 +898,150 @@ function extractCASList(text){
   const matches=text.match(/\b\d{2,7}-\d{2}-\d\b/g)||[];
   return [...new Set(matches)];
 }
+/* ---- 結構化欄位解析（支援 Tab / 逗號 / 分號分隔的官方清單匯出檔，例如 EINECS 匯出） ---- */
+function detectDelimiter(line){
+  const counts={'\t':(line.match(/\t/g)||[]).length, ',':(line.match(/,/g)||[]).length, ';':(line.match(/;/g)||[]).length};
+  return Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0];
+}
+function parseDelimitedLine(line,delim){
+  const result=[];let cur='';let inQuotes=false;
+  for(let i=0;i<line.length;i++){
+    const ch=line[i];
+    if(ch==='"'){ if(inQuotes && line[i+1]==='"'){cur+='"';i++;} else inQuotes=!inQuotes; }
+    else if(ch===delim && !inQuotes){result.push(cur);cur='';}
+    else cur+=ch;
+  }
+  result.push(cur);
+  return result.map(s=>s.trim());
+}
+/* 掃描前 50 行找出真正的表頭列（官方匯出檔前面常有說明文字），辨識 CAS No. / Name / Description 欄位 */
+function tryParseStructuredFile(text){
+  const lines=text.split(/\r?\n/);
+  for(let i=0;i<Math.min(lines.length,50);i++){
+    const line=lines[i];if(!line.trim())continue;
+    const delim=detectDelimiter(line);
+    if(delim===','&&!line.includes(','))continue;
+    const headerCells=parseDelimitedLine(line,delim).map(c=>c.trim());
+    const casIdx=headerCells.findIndex(c=>/^cas/i.test(c));
+    if(casIdx===-1)continue;
+    const nameIdx=headerCells.findIndex(c=>/^name$/i.test(c));
+    const nameIdxFinal=nameIdx>=0?nameIdx:headerCells.findIndex(c=>/name/i.test(c));
+    const descIdx=headerCells.findIndex(c=>/description/i.test(c));
+    const entries=[];
+    for(let j=i+1;j<lines.length;j++){
+      const dl=lines[j];if(!dl.trim())continue;
+      const cols=parseDelimitedLine(dl,delim);
+      const casRaw=(cols[casIdx]||'').trim();
+      const nameRaw=nameIdxFinal>=0?(cols[nameIdxFinal]||'').trim():'';
+      const descRaw=descIdx>=0?(cols[descIdx]||'').trim():'';
+      if(CAS_FORMAT_REGEX.test(casRaw)){
+        entries.push({kind:'cas',value:casRaw,name:nameRaw||null});
+      } else if(descRaw){
+        entries.push({kind:'desc',value:descRaw,name:nameRaw||descRaw});
+      } else if(nameRaw){
+        entries.push({kind:'desc',value:nameRaw,name:nameRaw});
+      }
+    }
+    if(entries.length)return entries;
+  }
+  return null;
+}
+function extractEntries(text){
+  const structured=tryParseStructuredFile(text);
+  if(structured&&structured.length)return{entries:structured,structured:true};
+  const casList=extractCASList(text);
+  return{entries:casList.map(c=>({kind:'cas',value:c,name:null})),structured:false};
+}
+/* 分頁抓取整張表（Supabase 單次查詢預設上限 1000 筆，10萬筆等級的清單必須分頁抓完，否則比對會漏資料） */
+async function fetchAllRows(table,selectCols,filters){
+  let all=[];let from=0;const pageSize=1000;
+  while(true){
+    let q=sb.from(table).select(selectCols).range(from,from+pageSize-1);
+    for(const[col,val] of Object.entries(filters||{}))q=q.eq(col,val);
+    const{data,error}=await q;
+    if(error){console.warn('fetchAllRows error',error);break;}
+    all=all.concat(data||[]);
+    if(!data||data.length<pageSize)break;
+    from+=pageSize;
+  }
+  return all;
+}
+/* 分批 upsert，避免單次請求塞入過多筆數（10萬筆會切成約 200 批，每批 500 筆） */
+async function chunkedUpsert(table,rows,opts,size=500){
+  for(let i=0;i<rows.length;i+=size){
+    const chunk=rows.slice(i,i+size);
+    const{error}=await sb.from(table).upsert(chunk,opts);
+    if(error){console.warn(`${table} upsert 失敗（第 ${i}-${i+chunk.length} 筆）`,error);}
+  }
+}
+
 let importDiff=[];
 async function parseImport(){
   const text=document.getElementById('imp-text').value;
   const country=document.getElementById('imp-country').value;
-  const casList=extractCASList(text);
-  if(!casList.length)return toast('未偵測到任何 CAS No.，請確認文字內容',true);
-  const{data:subs}=await sb.from('substance_db').select('cas_no,item_name').in('cas_no',casList);
-  const nameMap={};(subs||[]).forEach(s=>{nameMap[s.cas_no]=s.item_name;});
-  const{data:existingAll}=await sb.from('country_inventory_db').select('cas_no,status').eq('country_code',country);
-  const existingMap={};(existingAll||[]).forEach(r=>{existingMap[r.cas_no]=r.status;});
-  importDiff=casList.map(cas=>{
-    if(!(cas in existingMap))return {cas_no:cas,name:nameMap[cas]||'（本機資料庫尚未建檔）',diffType:'new',oldStatus:null};
-    if(existingMap[cas]!=='Listed')return {cas_no:cas,name:nameMap[cas]||cas,diffType:'update',oldStatus:existingMap[cas]};
-    return {cas_no:cas,name:nameMap[cas]||cas,diffType:'same',oldStatus:existingMap[cas]};
+  document.getElementById('imp-summary').innerHTML='正在比對資料，若清單筆數龐大請稍候...';
+  document.getElementById('imp-preview').style.display='block';
+  const{entries,structured}=extractEntries(text);
+  if(!entries.length)return toast('未偵測到任何可辨識的物質資料，請確認文字內容',true);
+  const seen=new Set();const uniqueEntries=[];
+  entries.forEach(e=>{const k=e.kind+'::'+e.value;if(!seen.has(k)){seen.add(k);uniqueEntries.push(e);}});
+
+  const existingAll=await fetchAllRows('country_inventory_db','cas_no,description,status',{country_code:country});
+  const existingCasMap={};const existingDescMap={};
+  existingAll.forEach(r=>{ if(r.cas_no)existingCasMap[r.cas_no]=r.status; else if(r.description)existingDescMap[r.description]=r.status; });
+  const localNameMap={};allSubstances.forEach(s=>{localNameMap[s.cas_no]=s.item_name;});
+
+  importDiff=uniqueEntries.map(e=>{
+    const existingStatus=e.kind==='cas'?existingCasMap[e.value]:existingDescMap[e.value];
+    const label=e.name||(e.kind==='cas'?(localNameMap[e.value]||'（本機資料庫尚未建檔）'):e.value);
+    let diffType;
+    if(existingStatus===undefined)diffType='new';
+    else if(existingStatus!=='Listed')diffType='update';
+    else diffType='same';
+    return{kind:e.kind,value:e.value,name:label,diffType,oldStatus:existingStatus??null};
   });
-  const missing=(existingAll||[]).filter(r=>r.status==='Listed'&&!casList.includes(r.cas_no)).map(r=>({cas_no:r.cas_no,name:nameMap[r.cas_no]||r.cas_no,diffType:'missing',oldStatus:r.status}));
-  const full=[...importDiff,...missing];
+  const presentCas=new Set(uniqueEntries.filter(e=>e.kind==='cas').map(e=>e.value));
+  const presentDesc=new Set(uniqueEntries.filter(e=>e.kind==='desc').map(e=>e.value));
+  const missing=existingAll.filter(r=>r.status==='Listed'&&((r.cas_no&&!presentCas.has(r.cas_no))||(r.description&&!presentDesc.has(r.description))))
+    .map(r=>({kind:r.cas_no?'cas':'desc',value:r.cas_no||r.description,name:r.cas_no?(localNameMap[r.cas_no]||r.cas_no):r.description,diffType:'missing',oldStatus:r.status}));
+  importDiff=[...importDiff,...missing];
+
   const counts={new:importDiff.filter(d=>d.diffType==='new').length,update:importDiff.filter(d=>d.diffType==='update').length,same:importDiff.filter(d=>d.diffType==='same').length,missing:missing.length};
-  document.getElementById('imp-summary').innerHTML=`共偵測到 <b>${casList.length}</b> 筆 CAS No.：<span class="diff-new">新增 ${counts.new}</span>　<span class="diff-update">狀態變更 ${counts.update}</span>　<span class="diff-same">未變動 ${counts.same}</span>　${counts.missing?`<span class="diff-missing">⚠️ 原清單中已列名但此次未出現 ${counts.missing} 筆（不會自動改動，請自行確認）</span>`:''}`;
-  const rows=full.map(d=>{
+  document.getElementById('imp-summary').innerHTML=`共偵測到 <b>${uniqueEntries.length}</b> 筆物質${structured?'（已辨識為結構化欄位，含物質名稱）':'（僅辨識 CAS No.）'}：<span class="diff-new">新增 ${counts.new}</span>　<span class="diff-update">狀態變更 ${counts.update}</span>　<span class="diff-same">未變動 ${counts.same}</span>　${counts.missing?`<span class="diff-missing">⚠️ 原清單中已列名但此次未出現 ${counts.missing} 筆（不會自動改動，請自行確認）</span>`:''}`;
+  const rows=importDiff.map((d,idx)=>{
     const label={new:'新增為 Listed',update:`更新：${INV_STATUS_LABEL[d.oldStatus]||d.oldStatus} → Listed`,same:'已是 Listed，無變動',missing:`⚠️ 未出現於本次清單（目前狀態：${INV_STATUS_LABEL[d.oldStatus]||d.oldStatus}）`}[d.diffType];
     const cls={new:'diff-new',update:'diff-update',same:'diff-same',missing:'diff-missing'}[d.diffType];
-    const checkbox=d.diffType!=='missing'?`<input type="checkbox" class="imp-check" data-cas="${d.cas_no}" data-type="${d.diffType}" ${d.diffType!=='same'?'checked':''}/>`:'';
-    return `<tr><td>${checkbox}</td><td><span class="cas-badge">${d.cas_no}</span></td><td>${d.name}</td><td class="${cls}">${label}</td></tr>`;
+    const checkbox=d.diffType!=='missing'?`<input type="checkbox" class="imp-check" data-idx="${idx}" ${d.diffType!=='same'?'checked':''}/>`:'';
+    const idBadge=d.kind==='cas'?`<span class="cas-badge">${d.value}</span>`:`<span class="cas-badge">${d.value}</span> <span class="flag-badge">無CAS</span>`;
+    return `<tr><td>${checkbox}</td><td>${idBadge}</td><td>${d.name}</td><td class="${cls}">${label}</td></tr>`;
   }).join('');
-  document.getElementById('imp-table').innerHTML=`<thead><tr><th></th><th>CAS No.</th><th>物質名稱</th><th>比對結果</th></tr></thead><tbody>${rows}</tbody>`;
-  document.getElementById('imp-preview').style.display='block';
+  document.getElementById('imp-table').innerHTML=`<thead><tr><th></th><th>識別碼</th><th>物質名稱</th><th>比對結果</th></tr></thead><tbody>${rows}</tbody>`;
 }
 async function confirmImport(){
   const country=document.getElementById('imp-country').value;
   const checks=[...document.querySelectorAll('.imp-check:checked')];
   if(!checks.length)return toast('沒有勾選任何項目',true);
-  const casArr=checks.map(chk=>chk.dataset.cas);
-  const missing=casArr.filter(c=>!allSubstances.some(s=>s.cas_no===c));
-  if(missing.length){
-    const rows=missing.map(c=>({cas_no:c,item_name:c,remarks:'系統自動建立（來自批次匯入），建議補充正式物質名稱'}));
-    const{error:regErr}=await sb.from('substance_db').upsert(rows,{onConflict:'cas_no',ignoreDuplicates:true});
-    if(regErr) console.warn('批次註冊物質主檔失敗',regErr);
+  toast('匯入中，請稍候...');
+  const items=checks.map(chk=>importDiff[parseInt(chk.dataset.idx)]);
+  const casItems=items.filter(x=>x.kind==='cas');
+  const descItems=items.filter(x=>x.kind==='desc');
+
+  const missingCas=[...new Set(casItems.filter(x=>!allSubstances.some(s=>s.cas_no===x.value)).map(x=>x.value))];
+  if(missingCas.length){
+    const nameOf=cas=>{const it=casItems.find(x=>x.value===cas);return(it&&it.name&&it.name!=='（本機資料庫尚未建檔）')?it.name:cas;};
+    const rows=missingCas.map(c=>({cas_no:c,item_name:nameOf(c),remarks:'系統自動建立（來自批次匯入），建議確認正式物質名稱'}));
+    await chunkedUpsert('substance_db',rows,{onConflict:'cas_no',ignoreDuplicates:true});
   }
-  let done=0;
-  for(const chk of checks){
-    const cas=chk.dataset.cas;
-    const{data:exist}=await sb.from('country_inventory_db').select('id').eq('cas_no',cas).eq('country_code',country).maybeSingle();
-    if(exist){await sb.from('country_inventory_db').update({status:'Listed'}).eq('id',exist.id);}
-    else{await sb.from('country_inventory_db').insert({cas_no:cas,country_code:country,status:'Listed'});}
-    done++;
+  if(casItems.length){
+    const rows=casItems.map(x=>({cas_no:x.value,country_code:country,status:'Listed'}));
+    await chunkedUpsert('country_inventory_db',rows,{onConflict:'cas_no,country_code'});
   }
-  toast(`已匯入 ${done} 筆資料！`);
+  if(descItems.length){
+    const rows=descItems.map(x=>({description:x.value,country_code:country,status:'Listed'}));
+    await chunkedUpsert('country_inventory_db',rows,{onConflict:'description,country_code'});
+    ensureDescriptionsLoaded();
+  }
+  toast(`已匯入 ${items.length} 筆資料！`);
   await ensureSubstancesLoaded(true);
   ensureKnownCasLoaded();
   document.getElementById('imp-preview').style.display='none';
