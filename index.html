@@ -331,6 +331,7 @@
   <button class="back-btn" onclick="showHome()">← 返回首頁</button>
   <div class="inner-content">
     <div class="page-header"><h1>各國清單狀態</h1><p>查詢與紀錄物質在各國既有化學物質清單（Existing Chemical Inventory）之狀態</p></div>
+    <div style="margin-bottom:20px"><button class="btn-secondary" onclick="backfillSubstanceRegistry()" style="font-size:0.78rem">🔄 資料維護：將既有清單中尚未建檔的 CAS No. 補齊到物質主檔</button></div>
 
     <div class="inv-tabs">
       <button class="inv-tab-btn active" data-tab="query-cas" onclick="showInvTab('query-cas')">查詢物質</button>
@@ -606,13 +607,40 @@ const INV_STATUS_CLASS = {'Listed':'hm-compliant','Not Listed':'hm-noncompliant'
 const INV_STATUS_LABEL = {'Listed':'已列名','Not Listed':'未列名','Exempt':'豁免','Pending':'審查中','Unknown':'未查證'};
 const INV_STATUS_DATALIST_ID = 'inv-status-suggestions';
 
-async function ensureSubstancesLoaded(){ if(!allSubstances.length){ const{data}=await sb.from('substance_db').select('cas_no, item_name').order('item_name'); allSubstances=data||[]; } }
+async function ensureSubstancesLoaded(force){ if(force||!allSubstances.length){ const{data}=await sb.from('substance_db').select('cas_no, item_name').order('item_name'); allSubstances=data||[]; } }
+/* 確保任何寫入的 CAS No. 都同步存在於 substance_db（全站共用的物質身份主檔），避免資料分裂 */
+async function ensureSubstanceRegistered(cas){
+  if(allSubstances.some(s=>s.cas_no===cas))return;
+  const{error}=await sb.from('substance_db').insert({cas_no:cas,item_name:cas,remarks:'系統自動建立（來自各國清單狀態插件），建議補充正式物質名稱'});
+  if(error && error.code!=='23505'){console.warn('自動建立物質主檔失敗',error);}
+  await ensureSubstancesLoaded(true);
+}
+/* 一次性補齊：把過去已經寫入 country_inventory_db / product_composition，但尚未存在於 substance_db 的 CAS No. 全部補齊 */
+async function backfillSubstanceRegistry(){
+  await Promise.all([ensureKnownCasLoaded(),ensureSubstancesLoaded(true)]);
+  const{data:compCas}=await sb.from('product_composition').select('cas_no').not('cas_no','is',null);
+  const knownSet=new Set(allKnownCas.concat((compCas||[]).map(r=>r.cas_no)));
+  const missing=[...knownSet].filter(c=>c && !allSubstances.some(s=>s.cas_no===c));
+  if(!missing.length){toast('物質主檔已經是最新的，沒有需要補齊的 CAS No.');return;}
+  const rows=missing.map(c=>({cas_no:c,item_name:c,remarks:'系統自動建立（來自各國清單狀態插件），建議補充正式物質名稱'}));
+  const{error}=await sb.from('substance_db').insert(rows);
+  if(error){toast('補齊失敗：'+error.message,true);return;}
+  await ensureSubstancesLoaded(true);
+  toast(`已補齊 ${missing.length} 筆物質到物質主檔！`);
+  invRenderDropdown(document.getElementById('inv-ms-search')?.value||'');
+}
 
 /* 識別碼工具：物質可能用 CAS No. 或 Description 辨識（例如 EINECS 的 UVCB／無 CAS 物質） */
 let allDescriptions=[];
+let allKnownCas=[];
+const CAS_FORMAT_REGEX=/^\d{2,7}-\d{2}-\d$/;
 async function ensureDescriptionsLoaded(){
   const{data}=await sb.from('country_inventory_db').select('description').not('description','is',null);
   allDescriptions=[...new Set((data||[]).map(r=>r.description).filter(Boolean))].sort();
+}
+async function ensureKnownCasLoaded(){
+  const{data}=await sb.from('country_inventory_db').select('cas_no').not('cas_no','is',null);
+  allKnownCas=[...new Set((data||[]).map(r=>r.cas_no).filter(Boolean))].sort();
 }
 function mkKey(kind,val){return kind+'::'+val;}
 function keyKind(k){return k.split('::')[0];}
@@ -621,30 +649,42 @@ function keyLabel(k){
   if(keyKind(k)==='cas'){const s=allSubstances.find(x=>x.cas_no===keyVal(k));return s?s.item_name:keyVal(k);}
   return keyVal(k);
 }
-/* 產生「搜尋下拉選單」的共用內容：既有 CAS 物質 + 既有 Description + 允許輸入全新 Description */
+/* 產生「搜尋下拉選單」的共用內容：既有 CAS 物質（含尚未建檔於物質主檔者）+ 既有 Description + 允許輸入全新 Description */
 function renderIdentifierOptions(q, selectedKeys, onClickFnName){
-  const qq=q.toLowerCase();
-  const casMatches=allSubstances.filter(s=>s.cas_no.toLowerCase().includes(qq)||s.item_name.toLowerCase().includes(qq));
-  const descMatches=allDescriptions.filter(d=>d.toLowerCase().includes(qq));
+  const qq=q.toLowerCase().trim();
   let html='';
-  casMatches.forEach(s=>{
+  const matchedCas=new Set();
+  const casSubMatches=allSubstances.filter(s=>s.cas_no.toLowerCase().includes(qq)||s.item_name.toLowerCase().includes(qq));
+  casSubMatches.forEach(s=>{
+    matchedCas.add(s.cas_no);
     const key=mkKey('cas',s.cas_no);
     html+=`<div class="dropdown-item ${selectedKeys.includes(key)?'selected':''}" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${s.cas_no}</span>${s.item_name}</div>`;
   });
+  const extraCasMatches=allKnownCas.filter(c=>!matchedCas.has(c) && c.toLowerCase().includes(qq));
+  extraCasMatches.forEach(c=>{
+    matchedCas.add(c);
+    const key=mkKey('cas',c);
+    html+=`<div class="dropdown-item ${selectedKeys.includes(key)?'selected':''}" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${c}</span><span style="color:var(--text-muted)">（尚未建檔物質名稱）</span></div>`;
+  });
+  if(qq && CAS_FORMAT_REGEX.test(qq) && !matchedCas.has(qq)){
+    const key=mkKey('cas',qq);
+    html+=`<div class="dropdown-item" style="color:var(--green-deep);font-weight:600" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')">以此 CAS No. 查詢／新增：「${qq}」</div>`;
+  }
+  const descMatches=allDescriptions.filter(d=>d.toLowerCase().includes(qq));
   descMatches.forEach(d=>{
     const key=mkKey('desc',d);
     html+=`<div class="dropdown-item ${selectedKeys.includes(key)?'selected':''}" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')"><span class="flag-badge" style="margin-right:6px;margin-left:0">無 CAS</span>${d}</div>`;
   });
-  if(q.trim() && !descMatches.some(d=>d.toLowerCase()===qq) && !casMatches.some(s=>s.cas_no.toLowerCase()===qq)){
+  if(qq && !CAS_FORMAT_REGEX.test(qq) && !descMatches.some(d=>d.toLowerCase()===qq)){
     const newKey=mkKey('desc',q.trim());
     html+=`<div class="dropdown-item" style="color:var(--green-deep);font-weight:600" onclick="${onClickFnName}('${newKey.replace(/'/g,"\\'")}')">＋ 以 Description 新增：「${q.trim()}」（無 CAS No.）</div>`;
   }
-  if(!html) html='<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質，可直接輸入 Description 新增</div>';
+  if(!html) html='<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質，可直接輸入 CAS No. 或 Description 新增</div>';
   return html;
 }
 
 function initInventoryPage(){
-  Promise.all([ensureSubstancesLoaded(),ensureDescriptionsLoaded()]).then(()=>{ invRenderDropdown(''); pcRenderDropdown(''); recRenderDropdown(''); });
+  Promise.all([ensureSubstancesLoaded(),ensureDescriptionsLoaded(),ensureKnownCasLoaded()]).then(()=>{ invRenderDropdown(''); pcRenderDropdown(''); recRenderDropdown(''); });
   loadProductsForQuery();
   loadProductsForBrowse();
   document.getElementById('imp-country').innerHTML = COUNTRY_LIST.map(c=>`<option value="${c}">${COUNTRY_LABEL[c]}</option>`).join('');
@@ -762,12 +802,13 @@ async function submitInvRecord(){
   const isCas=keyKind(recSelectedKey)==='cas';
   const col=isCas?'cas_no':'description';
   const val=keyVal(recSelectedKey);
+  if(isCas) await ensureSubstanceRegistered(val);
   await sb.from('country_inventory_db').delete().eq(col,val);
   const insertRows=rows.map(r=>({...r, cas_no:isCas?val:null, description:isCas?null:val}));
   const{error}=await sb.from('country_inventory_db').insert(insertRows);
   if(error)return toast('儲存失敗：'+error.message,true);
   toast('清單狀態已儲存！');
-  if(!isCas) ensureDescriptionsLoaded();
+  if(isCas) ensureKnownCasLoaded(); else ensureDescriptionsLoaded();
 }
 
 /* ---- 產品組合管理 ---- */
@@ -786,6 +827,7 @@ async function submitProduct(){
   const remarks=document.getElementById('pc-remarks').value.trim();
   if(!name)return toast('請填寫產品名稱',true);
   if(!pcSelectedKeys.length)return toast('請至少選擇一個成分',true);
+  for(const key of pcSelectedKeys){ if(keyKind(key)==='cas') await ensureSubstanceRegistered(keyVal(key)); }
   const{data:prod,error:e1}=await sb.from('product_db').insert({product_name:name,remarks}).select().single();
   if(e1)return toast('儲存失敗：'+e1.message,true);
   const rows=pcSelectedKeys.map(key=>{
@@ -885,6 +927,13 @@ async function confirmImport(){
   const country=document.getElementById('imp-country').value;
   const checks=[...document.querySelectorAll('.imp-check:checked')];
   if(!checks.length)return toast('沒有勾選任何項目',true);
+  const casArr=checks.map(chk=>chk.dataset.cas);
+  const missing=casArr.filter(c=>!allSubstances.some(s=>s.cas_no===c));
+  if(missing.length){
+    const rows=missing.map(c=>({cas_no:c,item_name:c,remarks:'系統自動建立（來自批次匯入），建議補充正式物質名稱'}));
+    const{error:regErr}=await sb.from('substance_db').upsert(rows,{onConflict:'cas_no',ignoreDuplicates:true});
+    if(regErr) console.warn('批次註冊物質主檔失敗',regErr);
+  }
   let done=0;
   for(const chk of checks){
     const cas=chk.dataset.cas;
@@ -894,6 +943,8 @@ async function confirmImport(){
     done++;
   }
   toast(`已匯入 ${done} 筆資料！`);
+  await ensureSubstancesLoaded(true);
+  ensureKnownCasLoaded();
   document.getElementById('imp-preview').style.display='none';
   document.getElementById('imp-text').value='';
 }
