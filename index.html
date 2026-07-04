@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ChemReg — 化學品法規資料庫</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;500;600;700&family=DM+Serif+Display&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
   <style>
     :root {
@@ -427,10 +428,10 @@
     <div class="inv-subpage" id="inv-tab-import">
       <div class="card">
         <h2>上傳官方清單</h2>
-        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:16px;line-height:1.6">上傳 CSV / TXT 檔案，或直接貼上文字。系統會自動辨識文字中的 CAS No.（格式如 64-17-5）。</p>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:16px;line-height:1.6">上傳 CSV / TXT / PDF 檔案，或直接貼上文字。系統會自動辨識文字中的 CAS No.（格式如 64-17-5）。PDF 僅支援「文字型」檔案（可反白選取文字的那種），掃描/圖片型 PDF 尚無法辨識。</p>
         <div class="form-grid-2">
           <div><label>目標國家清單 <span style="color:var(--amber)">*</span></label><select id="imp-country"></select></div>
-          <div><label>上傳檔案（CSV / TXT）</label><input type="file" id="imp-file" accept=".csv,.txt" onchange="handleImportFile(event)" /></div>
+          <div><label>上傳檔案（CSV / TXT / PDF）</label><input type="file" id="imp-file" accept=".csv,.txt,.pdf" onchange="handleImportFile(event)" /><div id="imp-file-status" style="font-size:0.78rem;color:var(--text-muted);margin-top:6px"></div></div>
         </div>
         <div class="form-full"><label>或直接貼上文字</label><textarea id="imp-text" placeholder="貼上清單文字或 CAS No. 列表..." style="min-height:120px"></textarea></div>
         <button class="btn-secondary" onclick="parseImport()">解析並比對</button>
@@ -768,9 +769,36 @@ async function deleteProduct(id){
 /* ---- 批次匯入官方清單 ---- */
 function handleImportFile(e){
   const file=e.target.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=ev=>{document.getElementById('imp-text').value=ev.target.result;};
-  reader.readAsText(file);
+  const statusEl=document.getElementById('imp-file-status');
+  const isPdf=file.name.toLowerCase().endsWith('.pdf')||file.type==='application/pdf';
+  if(isPdf){
+    statusEl.textContent='正在讀取 PDF 文字內容...';
+    extractTextFromPDF(file).then(text=>{
+      if(!text.trim()){statusEl.textContent='⚠️ 無法從此 PDF 抽取到文字，可能是掃描/圖片型 PDF，請改用文字型 PDF 或手動貼上文字。';return;}
+      document.getElementById('imp-text').value=text;
+      statusEl.textContent=`已讀取 PDF（共 ${file.name}），可直接點下方「解析並比對」`;
+    }).catch(err=>{statusEl.textContent='⚠️ PDF 讀取失敗：'+err.message;});
+  } else {
+    statusEl.textContent='正在讀取檔案...';
+    const reader=new FileReader();
+    reader.onload=ev=>{document.getElementById('imp-text').value=ev.target.result;statusEl.textContent=`已讀取 ${file.name}`;};
+    reader.onerror=()=>{statusEl.textContent='⚠️ 檔案讀取失敗';};
+    reader.readAsText(file);
+  }
+}
+async function extractTextFromPDF(file){
+  if(window['pdfjsLib']&&!pdfjsLib.GlobalWorkerOptions.workerSrc){
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  let fullText='';
+  for(let i=1;i<=pdf.numPages;i++){
+    const page=await pdf.getPage(i);
+    const content=await page.getTextContent();
+    fullText+=content.items.map(it=>it.str).join(' ')+'\n';
+  }
+  return fullText;
 }
 function extractCASList(text){
   const matches=text.match(/\b\d{2,7}-\d{2}-\d\b/g)||[];
