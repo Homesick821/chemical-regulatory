@@ -320,6 +320,7 @@
   <button class="back-btn" onclick="showHome()">← 返回首頁</button>
   <div class="inner-content">
     <div class="page-header"><h1>資料瀏覽</h1><p>查看、編輯或刪除現有物質資料</p></div>
+    <div style="margin-bottom:16px"><input type="text" id="browse-search" placeholder="搜尋 CAS No. 或物質名稱...（預設顯示前 100 筆，輸入關鍵字可查全部資料）" oninput="browseFilterOptions()" style="max-width:480px" /></div>
     <div class="card" style="padding:0;overflow:hidden">
       <table class="data-table"><thead><tr><th>CAS No.</th><th>物質名稱</th><th>用途</th><th>法規數</th><th></th></tr></thead><tbody id="browse-body"></tbody></table>
     </div>
@@ -526,16 +527,30 @@ async function submitAdd(){
 }
 
 let allSubstances=[],selectedCAS=[];
-async function loadSubstancesForScan(){const{data}=await sb.from('substance_db').select('cas_no, item_name').order('item_name');allSubstances=data||[];renderDropdown('');}
+let scanNameCache={};
+function loadSubstancesForScan(){renderDropdown('');}
 function focusSearch(){document.getElementById('ms-search').focus();}
 function openDropdown(){document.getElementById('ms-dropdown').classList.add('open');filterOptions();}
 document.addEventListener('click',e=>{if(!e.target.closest('.multiselect-wrapper'))document.getElementById('ms-dropdown')?.classList.remove('open');});
 document.addEventListener('click',e=>{if(!e.target.closest('.multiselect-wrapper')){['inv-ms-dropdown','rec-cas-dropdown','pc-ms-dropdown'].forEach(id=>document.getElementById(id)?.classList.remove('open'));}});
-function filterOptions(){renderDropdown(document.getElementById('ms-search').value.toLowerCase());}
-function renderDropdown(q){const dd=document.getElementById('ms-dropdown');const filtered=allSubstances.filter(s=>s.cas_no.toLowerCase().includes(q)||s.item_name.toLowerCase().includes(q));dd.innerHTML=filtered.length?filtered.map(s=>`<div class="dropdown-item ${selectedCAS.includes(s.cas_no)?'selected':''}" onclick="selectSubstance('${s.cas_no}','${s.item_name.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${s.cas_no}</span>${s.item_name}</div>`).join(''):'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質</div>';}
-function selectSubstance(cas,name){if(selectedCAS.includes(cas))return;selectedCAS.push(cas);renderTags();document.getElementById('ms-search').value='';filterOptions();}
+const scanSearchDebounced=debounce(async(q)=>{
+  const dd=document.getElementById('ms-dropdown');if(!dd)return;
+  const qq=q.trim();
+  if(qq.length<2){dd.innerHTML='<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">請至少輸入 2 個字搜尋（CAS No. 或物質名稱）</div>';return;}
+  dd.innerHTML='<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">搜尋中...</div>';
+  const like=`%${qq}%`;
+  const[byCas,byName]=await Promise.all([
+    sb.from('substance_db').select('cas_no,item_name').ilike('cas_no',like).limit(15),
+    sb.from('substance_db').select('cas_no,item_name').ilike('item_name',like).limit(15)
+  ]);
+  const map={};[...(byCas.data||[]),...(byName.data||[])].forEach(s=>{map[s.cas_no]=s.item_name;scanNameCache[s.cas_no]=s.item_name;});
+  const entries=Object.entries(map);
+  dd.innerHTML=entries.length?entries.map(([cas,name])=>`<div class="dropdown-item ${selectedCAS.includes(cas)?'selected':''}" onclick="selectSubstance('${cas}','${name.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${cas}</span>${name}</div>`).join(''):'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質</div>';
+},300);
+function filterOptions(){scanSearchDebounced(document.getElementById('ms-search').value);}
+function selectSubstance(cas,name){if(selectedCAS.includes(cas))return;selectedCAS.push(cas);scanNameCache[cas]=name;renderTags();document.getElementById('ms-search').value='';filterOptions();}
 function removeTag(cas){selectedCAS=selectedCAS.filter(c=>c!==cas);renderTags();filterOptions();}
-function renderTags(){document.getElementById('ms-tags').innerHTML=selectedCAS.map(cas=>{const s=allSubstances.find(x=>x.cas_no===cas);return `<span class="tag">${s?.item_name||cas}<span class="tag-remove" onclick="removeTag('${cas}')">✕</span></span>`;}).join('');}
+function renderTags(){document.getElementById('ms-tags').innerHTML=selectedCAS.map(cas=>`<span class="tag">${scanNameCache[cas]||cas}<span class="tag-remove" onclick="removeTag('${cas}')">✕</span></span>`).join('');}
 
 let scanData={};
 async function runScan(){
@@ -555,13 +570,30 @@ async function runScan(){
 }
 function downloadCSV(){const{subs,regs}=scanData;const regNames=[...new Set(regs.map(r=>r.regulation_name))].sort();const subMap={};subs.forEach(s=>{subMap[s.cas_no]=s.item_name;});const lookup={};regs.forEach(r=>{if(!lookup[r.cas_no])lookup[r.cas_no]={};lookup[r.cas_no][r.regulation_name]=r.status;});const header=['CAS No.','物質名稱',...regNames].join(',');const rows=selectedCAS.map(cas=>[cas,subMap[cas]||'',...regNames.map(reg=>lookup[cas]?.[reg]||'—')].map(v=>`"${v}"`).join(','));const csv='\uFEFF'+[header,...rows].join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='compliance_report.csv';a.click();}
 
-async function loadBrowse(){
-  const{data:subs}=await sb.from('substance_db').select('*').order('item_name');
-  const{data:regs}=await sb.from('regulatory_db').select('cas_no');
-  const regCount={};(regs||[]).forEach(r=>{regCount[r.cas_no]=(regCount[r.cas_no]||0)+1;});
+const browseFilterOptions=debounce(()=>loadBrowse(document.getElementById('browse-search')?.value||''),300);
+async function loadBrowse(q=''){
   const tbody=document.getElementById('browse-body');
-  if(!subs?.length){tbody.innerHTML=`<tr><td colspan="5"><div class="empty-state"><p>尚無資料，請先新增物質。</p></div></td></tr>`;return;}
-  tbody.innerHTML=subs.map(s=>`<tr><td><span class="cas-badge">${s.cas_no}</span></td><td>${s.item_name}</td><td style="color:var(--text-secondary)">${s.function||'—'}</td><td style="color:var(--text-secondary)">${regCount[s.cas_no]||0} 筆</td><td><button class="btn-edit-row" onclick="openEdit('${s.cas_no}')">編輯</button></td></tr>`).join('');
+  tbody.innerHTML=`<tr><td colspan="5"><div class="empty-state"><p>載入中...</p></div></td></tr>`;
+  const qq=q.trim();
+  let subs;
+  if(qq){
+    const like=`%${qq}%`;
+    const[byCas,byName]=await Promise.all([
+      sb.from('substance_db').select('*').ilike('cas_no',like).limit(100),
+      sb.from('substance_db').select('*').ilike('item_name',like).limit(100)
+    ]);
+    const map={};[...(byCas.data||[]),...(byName.data||[])].forEach(s=>{map[s.cas_no]=s;});
+    subs=Object.values(map).sort((a,b)=>a.item_name.localeCompare(b.item_name));
+  } else {
+    const{data}=await sb.from('substance_db').select('*').order('item_name').limit(100);
+    subs=data||[];
+  }
+  if(!subs.length){tbody.innerHTML=`<tr><td colspan="5"><div class="empty-state"><p>${qq?'找不到符合的物質':'尚無資料，請先新增物質。'}</p></div></td></tr>`;return;}
+  const casList=subs.map(s=>s.cas_no);
+  const{data:regs}=await sb.from('regulatory_db').select('cas_no').in('cas_no',casList);
+  const regCount={};(regs||[]).forEach(r=>{regCount[r.cas_no]=(regCount[r.cas_no]||0)+1;});
+  const hint=(!qq&&subs.length>=100)?`<tr><td colspan="5" style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:12px">僅顯示前 100 筆，請搜尋 CAS No. 或物質名稱以查看更多</td></tr>`:'';
+  tbody.innerHTML=subs.map(s=>`<tr><td><span class="cas-badge">${s.cas_no}</span></td><td>${s.item_name}</td><td style="color:var(--text-secondary)">${s.function||'—'}</td><td style="color:var(--text-secondary)">${regCount[s.cas_no]||0} 筆</td><td><button class="btn-edit-row" onclick="openEdit('${s.cas_no}')">編輯</button></td></tr>`).join('')+hint;
 }
 
 let editingCAS=null;
@@ -607,87 +639,83 @@ const INV_STATUS_CLASS = {'Listed':'hm-compliant','Not Listed':'hm-noncompliant'
 const INV_STATUS_LABEL = {'Listed':'已列名','Not Listed':'未列名','Exempt':'豁免','Pending':'審查中','Unknown':'未查證'};
 const INV_STATUS_DATALIST_ID = 'inv-status-suggestions';
 
-async function ensureSubstancesLoaded(force){ if(force||!allSubstances.length){ const{data}=await sb.from('substance_db').select('cas_no, item_name').order('item_name'); allSubstances=data||[]; } }
 /* 確保任何寫入的 CAS No. 都同步存在於 substance_db（全站共用的物質身份主檔），避免資料分裂 */
 async function ensureSubstanceRegistered(cas){
-  if(allSubstances.some(s=>s.cas_no===cas))return;
+  const{data:exist}=await sb.from('substance_db').select('cas_no').eq('cas_no',cas).maybeSingle();
+  if(exist)return;
   const{error}=await sb.from('substance_db').insert({cas_no:cas,item_name:cas,remarks:'系統自動建立（來自各國清單狀態插件），建議補充正式物質名稱'});
   if(error && error.code!=='23505'){console.warn('自動建立物質主檔失敗',error);}
-  await ensureSubstancesLoaded(true);
 }
 /* 一次性補齊：把過去已經寫入 country_inventory_db / product_composition，但尚未存在於 substance_db 的 CAS No. 全部補齊 */
 async function backfillSubstanceRegistry(){
-  await ensureSubstancesLoaded(true);
   const[casRows,compRows]=await Promise.all([
     fetchAllRows('country_inventory_db','cas_no',{}),
     fetchAllRows('product_composition','cas_no',{})
   ]);
-  const knownSet=new Set([...casRows,...compRows].map(r=>r.cas_no).filter(Boolean));
-  const missing=[...knownSet].filter(c=>!allSubstances.some(s=>s.cas_no===c));
+  const knownArr=[...new Set([...casRows,...compRows].map(r=>r.cas_no).filter(Boolean))];
+  const existingSet=new Set();
+  for(let i=0;i<knownArr.length;i+=500){
+    const chunk=knownArr.slice(i,i+500);
+    const{data}=await sb.from('substance_db').select('cas_no').in('cas_no',chunk);
+    (data||[]).forEach(r=>existingSet.add(r.cas_no));
+  }
+  const missing=knownArr.filter(c=>!existingSet.has(c));
   if(!missing.length){toast('物質主檔已經是最新的，沒有需要補齊的 CAS No.');return;}
   toast(`正在補齊 ${missing.length} 筆物質，請稍候...`);
   const rows=missing.map(c=>({cas_no:c,item_name:c,remarks:'系統自動建立（來自各國清單狀態插件），建議補充正式物質名稱'}));
   await chunkedUpsert('substance_db',rows,{onConflict:'cas_no',ignoreDuplicates:true});
-  await ensureSubstancesLoaded(true);
   toast(`已補齊 ${missing.length} 筆物質到物質主檔！`);
-  invRenderDropdown(document.getElementById('inv-ms-search')?.value||'');
 }
 
 /* 識別碼工具：物質可能用 CAS No. 或 Description 辨識（例如 EINECS 的 UVCB／無 CAS 物質） */
-let allDescriptions=[];
-let allKnownCas=[];
 const CAS_FORMAT_REGEX=/^\d{2,7}-\d{2}-\d$/;
-async function ensureDescriptionsLoaded(){
-  const{data}=await sb.from('country_inventory_db').select('description').not('description','is',null);
-  allDescriptions=[...new Set((data||[]).map(r=>r.description).filter(Boolean))].sort();
-}
-async function ensureKnownCasLoaded(){
-  const{data}=await sb.from('country_inventory_db').select('cas_no').not('cas_no','is',null);
-  allKnownCas=[...new Set((data||[]).map(r=>r.cas_no).filter(Boolean))].sort();
-}
+function debounce(fn,delay){let t;return(...args)=>{clearTimeout(t);t=setTimeout(()=>fn(...args),delay);};}
+let keyNameCache={};
 function mkKey(kind,val){return kind+'::'+val;}
 function keyKind(k){return k.split('::')[0];}
 function keyVal(k){return k.slice(k.indexOf('::')+2);}
-function keyLabel(k){
-  if(keyKind(k)==='cas'){const s=allSubstances.find(x=>x.cas_no===keyVal(k));return s?s.item_name:keyVal(k);}
-  return keyVal(k);
-}
-/* 產生「搜尋下拉選單」的共用內容：既有 CAS 物質（含尚未建檔於物質主檔者）+ 既有 Description + 允許輸入全新 Description */
-function renderIdentifierOptions(q, selectedKeys, onClickFnName){
-  const qq=q.toLowerCase().trim();
+function keyLabel(k){return keyNameCache[k]||keyVal(k);}
+/* 即時向資料庫搜尋（打字才查，不預先下載全部物質），回傳下拉選單 HTML */
+async function searchIdentifierOptions(q, selectedKeys, onClickFnName){
+  const qq=q.trim();
+  if(qq.length<2)return'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">請至少輸入 2 個字搜尋（CAS No. 或名稱／Description）</div>';
+  const like=`%${qq}%`;
+  const[byCas,byName,invByCas,invByDesc]=await Promise.all([
+    sb.from('substance_db').select('cas_no,item_name').ilike('cas_no',like).limit(15),
+    sb.from('substance_db').select('cas_no,item_name').ilike('item_name',like).limit(15),
+    sb.from('country_inventory_db').select('cas_no').not('cas_no','is',null).ilike('cas_no',like).limit(30),
+    sb.from('country_inventory_db').select('description').not('description','is',null).ilike('description',like).limit(30)
+  ]);
+  const subMap={};[...(byCas.data||[]),...(byName.data||[])].forEach(s=>{subMap[s.cas_no]=s.item_name;});
+  (invByCas.data||[]).forEach(r=>{if(!(r.cas_no in subMap))subMap[r.cas_no]=null;});
+  const descSet=new Set((invByDesc.data||[]).map(r=>r.description).filter(Boolean));
   let html='';
-  const matchedCas=new Set();
-  const casSubMatches=allSubstances.filter(s=>s.cas_no.toLowerCase().includes(qq)||s.item_name.toLowerCase().includes(qq));
-  casSubMatches.forEach(s=>{
-    matchedCas.add(s.cas_no);
-    const key=mkKey('cas',s.cas_no);
-    html+=`<div class="dropdown-item ${selectedKeys.includes(key)?'selected':''}" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${s.cas_no}</span>${s.item_name}</div>`;
+  Object.keys(subMap).forEach(cas=>{
+    const key=mkKey('cas',cas);
+    const name=subMap[cas];
+    keyNameCache[key]=name||cas;
+    html+=`<div class="dropdown-item ${selectedKeys.includes(key)?'selected':''}" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${cas}</span>${name||'<span style="color:var(--text-muted)">（尚未建檔物質名稱）</span>'}</div>`;
   });
-  const extraCasMatches=allKnownCas.filter(c=>!matchedCas.has(c) && c.toLowerCase().includes(qq));
-  extraCasMatches.forEach(c=>{
-    matchedCas.add(c);
-    const key=mkKey('cas',c);
-    html+=`<div class="dropdown-item ${selectedKeys.includes(key)?'selected':''}" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${c}</span><span style="color:var(--text-muted)">（尚未建檔物質名稱）</span></div>`;
-  });
-  if(qq && CAS_FORMAT_REGEX.test(qq) && !matchedCas.has(qq)){
+  if(CAS_FORMAT_REGEX.test(qq) && !(qq in subMap)){
     const key=mkKey('cas',qq);
+    keyNameCache[key]=qq;
     html+=`<div class="dropdown-item" style="color:var(--green-deep);font-weight:600" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')">以此 CAS No. 查詢／新增：「${qq}」</div>`;
   }
-  const descMatches=allDescriptions.filter(d=>d.toLowerCase().includes(qq));
-  descMatches.forEach(d=>{
+  descSet.forEach(d=>{
     const key=mkKey('desc',d);
+    keyNameCache[key]=d;
     html+=`<div class="dropdown-item ${selectedKeys.includes(key)?'selected':''}" onclick="${onClickFnName}('${key.replace(/'/g,"\\'")}')"><span class="flag-badge" style="margin-right:6px;margin-left:0">無 CAS</span>${d}</div>`;
   });
-  if(qq && !CAS_FORMAT_REGEX.test(qq) && !descMatches.some(d=>d.toLowerCase()===qq)){
-    const newKey=mkKey('desc',q.trim());
-    html+=`<div class="dropdown-item" style="color:var(--green-deep);font-weight:600" onclick="${onClickFnName}('${newKey.replace(/'/g,"\\'")}')">＋ 以 Description 新增：「${q.trim()}」（無 CAS No.）</div>`;
+  if(!CAS_FORMAT_REGEX.test(qq) && ![...descSet].some(d=>d.toLowerCase()===qq.toLowerCase())){
+    const newKey=mkKey('desc',qq);
+    keyNameCache[newKey]=qq;
+    html+=`<div class="dropdown-item" style="color:var(--green-deep);font-weight:600" onclick="${onClickFnName}('${newKey.replace(/'/g,"\\'")}')">＋ 以 Description 新增：「${qq}」（無 CAS No.）</div>`;
   }
-  if(!html) html='<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質，可直接輸入 CAS No. 或 Description 新增</div>';
+  if(!html)html='<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質，可直接輸入 CAS No. 或 Description 新增</div>';
   return html;
 }
 
 function initInventoryPage(){
-  Promise.all([ensureSubstancesLoaded(),ensureDescriptionsLoaded(),ensureKnownCasLoaded()]).then(()=>{ invRenderDropdown(''); pcRenderDropdown(''); recRenderDropdown(''); });
   loadProductsForQuery();
   loadProductsForBrowse();
   document.getElementById('imp-country').innerHTML = COUNTRY_LIST.map(c=>`<option value="${c}">${COUNTRY_LABEL[c]}</option>`).join('');
@@ -703,8 +731,13 @@ function showInvTab(name){
 /* ---- 查詢：多選物質 ---- */
 let invSelectedKeys=[];
 function invOpenDropdown(){document.getElementById('inv-ms-dropdown').classList.add('open');invFilterOptions();}
-function invFilterOptions(){invRenderDropdown(document.getElementById('inv-ms-search').value);}
-function invRenderDropdown(q){const dd=document.getElementById('inv-ms-dropdown');if(!dd)return;dd.innerHTML=renderIdentifierOptions(q,invSelectedKeys,'invSelectSubstance');}
+const invSearchDebounced=debounce(async(q)=>{
+  const dd=document.getElementById('inv-ms-dropdown');if(!dd)return;
+  dd.innerHTML=q.trim().length<2?'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">請至少輸入 2 個字搜尋（CAS No. 或名稱／Description）</div>':'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">搜尋中...</div>';
+  const html=await searchIdentifierOptions(q,invSelectedKeys,'invSelectSubstance');
+  dd.innerHTML=html;
+},300);
+function invFilterOptions(){invSearchDebounced(document.getElementById('inv-ms-search').value);}
 function invSelectSubstance(key){if(invSelectedKeys.includes(key))return;invSelectedKeys.push(key);invRenderTags();document.getElementById('inv-ms-search').value='';invFilterOptions();}
 function invRemoveTag(key){invSelectedKeys=invSelectedKeys.filter(k=>k!==key);invRenderTags();invFilterOptions();}
 function invRenderTags(){document.getElementById('inv-ms-tags').innerHTML=invSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="invRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');}
@@ -764,8 +797,13 @@ async function runProductQuery(){
 /* ---- 紀錄狀態 ---- */
 let recSelectedKey=null;
 function recOpenDropdown(){document.getElementById('rec-cas-dropdown').classList.add('open');recFilterOptions();}
-function recFilterOptions(){recRenderDropdown(document.getElementById('rec-cas-search').value);}
-function recRenderDropdown(q){const dd=document.getElementById('rec-cas-dropdown');if(!dd)return;dd.innerHTML=renderIdentifierOptions(q,recSelectedKey?[recSelectedKey]:[],'recSelectSubstance');}
+const recSearchDebounced=debounce(async(q)=>{
+  const dd=document.getElementById('rec-cas-dropdown');if(!dd)return;
+  dd.innerHTML=q.trim().length<2?'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">請至少輸入 2 個字搜尋（CAS No. 或名稱／Description）</div>':'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">搜尋中...</div>';
+  const html=await searchIdentifierOptions(q,recSelectedKey?[recSelectedKey]:[],'recSelectSubstance');
+  dd.innerHTML=html;
+},300);
+function recFilterOptions(){recSearchDebounced(document.getElementById('rec-cas-search').value);}
 async function recSelectSubstance(key){
   recSelectedKey=key;
   document.getElementById('rec-cas-tag').innerHTML=`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="recClearSubstance()">✕</span></span>`;
@@ -774,7 +812,6 @@ async function recSelectSubstance(key){
   const{data}=await sb.from('country_inventory_db').select('*').eq(col,keyVal(key));
   const tbody=document.getElementById('inv-rows-record');tbody.innerHTML='';
   if(data&&data.length){data.forEach(r=>addInvRow('record',r));} else {addInvRow('record');}
-  if(keyKind(key)==='desc') await ensureDescriptionsLoaded();
 }
 function recClearSubstance(){recSelectedKey=null;document.getElementById('rec-cas-tag').innerHTML='';const tbody=document.getElementById('inv-rows-record');tbody.innerHTML='';addInvRow('record');}
 
@@ -811,14 +848,18 @@ async function submitInvRecord(){
   const{error}=await sb.from('country_inventory_db').insert(insertRows);
   if(error)return toast('儲存失敗：'+error.message,true);
   toast('清單狀態已儲存！');
-  if(isCas) ensureKnownCasLoaded(); else ensureDescriptionsLoaded();
 }
 
 /* ---- 產品組合管理 ---- */
 let pcSelectedKeys=[];
 function pcOpenDropdown(){document.getElementById('pc-ms-dropdown').classList.add('open');pcFilterOptions();}
-function pcFilterOptions(){pcRenderDropdown(document.getElementById('pc-ms-search').value);}
-function pcRenderDropdown(q){const dd=document.getElementById('pc-ms-dropdown');if(!dd)return;dd.innerHTML=renderIdentifierOptions(q,pcSelectedKeys,'pcSelectSubstance');}
+const pcSearchDebounced=debounce(async(q)=>{
+  const dd=document.getElementById('pc-ms-dropdown');if(!dd)return;
+  dd.innerHTML=q.trim().length<2?'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">請至少輸入 2 個字搜尋（CAS No. 或名稱／Description）</div>':'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">搜尋中...</div>';
+  const html=await searchIdentifierOptions(q,pcSelectedKeys,'pcSelectSubstance');
+  dd.innerHTML=html;
+},300);
+function pcFilterOptions(){pcSearchDebounced(document.getElementById('pc-ms-search').value);}
 function pcSelectSubstance(key){if(pcSelectedKeys.includes(key))return;pcSelectedKeys.push(key);pcRenderTags();pcRenderPctRows();document.getElementById('pc-ms-search').value='';pcFilterOptions();}
 function pcRemoveTag(key){pcSelectedKeys=pcSelectedKeys.filter(k=>k!==key);pcRenderTags();pcRenderPctRows();pcFilterOptions();}
 function pcRenderTags(){document.getElementById('pc-ms-tags').innerHTML=pcSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="pcRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');}
@@ -843,7 +884,7 @@ async function submitProduct(){
   toast('產品組合已儲存！');
   document.getElementById('pc-name').value='';document.getElementById('pc-remarks').value='';
   pcSelectedKeys=[];pcRenderTags();pcRenderPctRows();
-  loadProductsForBrowse();loadProductsForQuery();ensureDescriptionsLoaded();
+  loadProductsForBrowse();loadProductsForQuery();
 }
 async function loadProductsForBrowse(){
   const{data:prods}=await sb.from('product_db').select('*').order('product_name');
@@ -989,7 +1030,13 @@ async function parseImport(){
   const existingAll=await fetchAllRows('country_inventory_db','cas_no,description,status',{country_code:country});
   const existingCasMap={};const existingDescMap={};
   existingAll.forEach(r=>{ if(r.cas_no)existingCasMap[r.cas_no]=r.status; else if(r.description)existingDescMap[r.description]=r.status; });
-  const localNameMap={};allSubstances.forEach(s=>{localNameMap[s.cas_no]=s.item_name;});
+  const casValuesForLookup=[...new Set(uniqueEntries.filter(e=>e.kind==='cas').map(e=>e.value).concat(existingAll.filter(r=>r.cas_no).map(r=>r.cas_no)))];
+  const localNameMap={};
+  for(let i=0;i<casValuesForLookup.length;i+=500){
+    const chunk=casValuesForLookup.slice(i,i+500);
+    const{data}=await sb.from('substance_db').select('cas_no,item_name').in('cas_no',chunk);
+    (data||[]).forEach(s=>{localNameMap[s.cas_no]=s.item_name;});
+  }
 
   importDiff=uniqueEntries.map(e=>{
     const existingStatus=e.kind==='cas'?existingCasMap[e.value]:existingDescMap[e.value];
@@ -1026,7 +1073,14 @@ async function confirmImport(){
   const casItems=items.filter(x=>x.kind==='cas');
   const descItems=items.filter(x=>x.kind==='desc');
 
-  const missingCas=[...new Set(casItems.filter(x=>!allSubstances.some(s=>s.cas_no===x.value)).map(x=>x.value))];
+  const casValues=[...new Set(casItems.map(x=>x.value))];
+  const existingCasSet=new Set();
+  for(let i=0;i<casValues.length;i+=500){
+    const chunk=casValues.slice(i,i+500);
+    const{data}=await sb.from('substance_db').select('cas_no').in('cas_no',chunk);
+    (data||[]).forEach(r=>existingCasSet.add(r.cas_no));
+  }
+  const missingCas=casValues.filter(c=>!existingCasSet.has(c));
   if(missingCas.length){
     const nameOf=cas=>{const it=casItems.find(x=>x.value===cas);return(it&&it.name&&it.name!=='（本機資料庫尚未建檔）')?it.name:cas;};
     const rows=missingCas.map(c=>({cas_no:c,item_name:nameOf(c),remarks:'系統自動建立（來自批次匯入），建議確認正式物質名稱'}));
@@ -1039,11 +1093,8 @@ async function confirmImport(){
   if(descItems.length){
     const rows=descItems.map(x=>({description:x.value,country_code:country,status:'Listed'}));
     await chunkedUpsert('country_inventory_db',rows,{onConflict:'description,country_code'});
-    ensureDescriptionsLoaded();
   }
   toast(`已匯入 ${items.length} 筆資料！`);
-  await ensureSubstancesLoaded(true);
-  ensureKnownCasLoaded();
   document.getElementById('imp-preview').style.display='none';
   document.getElementById('imp-text').value='';
 }
