@@ -334,6 +334,16 @@
     <div class="page-header"><h1>各國清單狀態</h1><p>查詢與紀錄物質在各國既有化學物質清單（Existing Chemical Inventory）之狀態</p></div>
     <div style="margin-bottom:20px"><button class="btn-secondary" onclick="backfillSubstanceRegistry()" style="font-size:0.78rem">🔄 資料維護：將既有清單中尚未建檔的 CAS No. 補齊到物質主檔</button></div>
 
+    <div class="card" style="margin-bottom:20px">
+      <h2>管理國家清單</h2>
+      <div id="country-manage-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
+      <div class="form-grid-2">
+        <div><label>國家代碼</label><input type="text" id="new-country-code" placeholder="例如：ANVISA（英數，將自動轉大寫）" /></div>
+        <div><label>顯示名稱</label><input type="text" id="new-country-label" placeholder="例如：巴西 ANVISA" /></div>
+      </div>
+      <button class="btn-secondary" onclick="addCountry()" style="margin-top:10px">＋ 新增國家</button>
+    </div>
+
     <div class="inv-tabs">
       <button class="inv-tab-btn active" data-tab="query-cas" onclick="showInvTab('query-cas')">查詢物質</button>
       <button class="inv-tab-btn" data-tab="query-product" onclick="showInvTab('query-product')">查詢產品</button>
@@ -632,8 +642,50 @@ async function deleteSubstance(){
 addRegRow('add');
 
 /* ===================== 各國清單狀態插件 ===================== */
-const COUNTRY_LIST = ['TSCA','EINECS','ENCS','KECI','TCSI','IECSC'];
-const COUNTRY_LABEL = {TSCA:'美國 TSCA',EINECS:'歐盟 EINECS',ENCS:'日本 ENCS',KECI:'韓國 KECI',TCSI:'台灣 TCSI',IECSC:'中國 IECSC'};
+let COUNTRY_LIST = [];
+let COUNTRY_LABEL = {};
+/* 從 country_list_db 動態載入國家清單（取代舊版寫死的陣列），讓使用者可自行新增/刪除國家 */
+async function loadCountryList(){
+  const{data,error}=await sb.from('country_list_db').select('*').order('sort_order',{ascending:true,nullsFirst:false}).order('code',{ascending:true});
+  if(error){console.warn('載入國家清單失敗',error);return;}
+  COUNTRY_LIST=(data||[]).map(r=>r.code);
+  COUNTRY_LABEL={};(data||[]).forEach(r=>{COUNTRY_LABEL[r.code]=r.label;});
+  return data||[];
+}
+function renderCountryManageList(rows){
+  const el=document.getElementById('country-manage-list');
+  if(!el)return;
+  el.innerHTML=(rows||[]).map(r=>`<span class="tag">${r.label}<span class="tag-remove" onclick="deleteCountry('${r.code.replace(/'/g,"\\'")}')">✕</span></span>`).join('')
+    || '<span style="color:var(--text-muted);font-size:0.82rem">尚無國家，請於下方新增</span>';
+}
+async function refreshCountryManageUI(){
+  const{data}=await sb.from('country_list_db').select('*').order('sort_order',{ascending:true,nullsFirst:false}).order('code',{ascending:true});
+  renderCountryManageList(data);
+}
+function refreshImpCountrySelect(){
+  const el=document.getElementById('imp-country');
+  if(el)el.innerHTML=COUNTRY_LIST.map(c=>`<option value="${c}">${COUNTRY_LABEL[c]}</option>`).join('');
+}
+async function addCountry(){
+  const code=document.getElementById('new-country-code').value.trim().toUpperCase();
+  const label=document.getElementById('new-country-label').value.trim();
+  if(!code||!label)return toast('請填寫國家代碼與顯示名稱',true);
+  if(COUNTRY_LIST.includes(code))return toast('此代碼已存在',true);
+  const{error}=await sb.from('country_list_db').insert({code,label});
+  if(error)return toast('新增失敗：'+(error.code==='23505'?'此代碼已存在':error.message),true);
+  document.getElementById('new-country-code').value='';document.getElementById('new-country-label').value='';
+  await loadCountryList();refreshImpCountrySelect();await refreshCountryManageUI();
+  toast('已新增國家！');
+}
+async function deleteCountry(code){
+  const{count}=await sb.from('country_inventory_db').select('id',{count:'exact',head:true}).eq('country_code',code);
+  const msg=count>0?`此國家已有 ${count} 筆清單狀態資料，刪除國家設定不會刪除這些資料，但畫面上將不再顯示此欄位。確定要刪除嗎？`:'確定要刪除此國家？';
+  if(!confirm(msg))return;
+  const{error}=await sb.from('country_list_db').delete().eq('code',code);
+  if(error)return toast('刪除失敗：'+error.message,true);
+  await loadCountryList();refreshImpCountrySelect();await refreshCountryManageUI();
+  toast('已刪除');
+}
 const INV_STATUS_OPTIONS = ['Listed','Not Listed','Exempt','Pending','Unknown'];
 const INV_STATUS_CLASS = {'Listed':'hm-compliant','Not Listed':'hm-noncompliant','Exempt':'hm-exempt','Pending':'hm-review','Unknown':'hm-na','—':'hm-na'};
 const INV_STATUS_LABEL = {'Listed':'已列名','Not Listed':'未列名','Exempt':'豁免','Pending':'審查中','Unknown':'未查證'};
@@ -715,10 +767,12 @@ async function searchIdentifierOptions(q, selectedKeys, onClickFnName){
   return html;
 }
 
-function initInventoryPage(){
+async function initInventoryPage(){
+  await loadCountryList();
   loadProductsForQuery();
   loadProductsForBrowse();
-  document.getElementById('imp-country').innerHTML = COUNTRY_LIST.map(c=>`<option value="${c}">${COUNTRY_LABEL[c]}</option>`).join('');
+  refreshImpCountrySelect();
+  refreshCountryManageUI();
   if(!document.getElementById('inv-rows-record').children.length) addInvRow('record');
 }
 
