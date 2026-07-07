@@ -105,7 +105,7 @@
     .multiselect-wrapper { position: relative; }
     .multiselect-input { width: 100%; padding: 9px 13px; border: 1.5px solid var(--cream-dark); border-radius: 10px; background: var(--cream); cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px; min-height: 42px; align-items: center; }
     .multiselect-input:focus-within { border-color: var(--green-mid); background: #fff; }
-    .tag { background: var(--green-deep); color: #fff; border-radius: 100px; padding: 3px 10px; font-size: 0.75rem; font-weight: 500; display: flex; align-items: center; gap: 5px; font-family: 'Noto Serif TC', serif; }
+    .tag { background: var(--green-deep); color: #fff; border-radius: 100px; padding: 3px 10px; font-size: 0.75rem; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; font-family: 'Noto Serif TC', serif; }
     .tag-remove { cursor: pointer; opacity: 0.7; }
     .tag-remove:hover { opacity: 1; }
     .multiselect-search { border: none; outline: none; background: transparent; font-size: 0.85rem; flex: 1; min-width: 100px; font-family: 'Noto Serif TC', serif; }
@@ -334,21 +334,12 @@
     <div class="page-header"><h1>各國清單狀態</h1><p>查詢與紀錄物質在各國既有化學物質清單（Existing Chemical Inventory）之狀態</p></div>
     <div style="margin-bottom:20px"><button class="btn-secondary" onclick="backfillSubstanceRegistry()" style="font-size:0.78rem">🔄 資料維護：將既有清單中尚未建檔的 CAS No. 補齊到物質主檔</button></div>
 
-    <div class="card" style="margin-bottom:20px">
-      <h2>管理國家清單</h2>
-      <div id="country-manage-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
-      <div class="form-grid-2">
-        <div><label>國家代碼</label><input type="text" id="new-country-code" placeholder="例如：ANVISA（英數，將自動轉大寫）" /></div>
-        <div><label>顯示名稱</label><input type="text" id="new-country-label" placeholder="例如：巴西 ANVISA" /></div>
-      </div>
-      <button class="btn-secondary" onclick="addCountry()" style="margin-top:10px">＋ 新增國家</button>
-    </div>
-
     <div class="inv-tabs">
       <button class="inv-tab-btn active" data-tab="query-cas" onclick="showInvTab('query-cas')">查詢物質</button>
       <button class="inv-tab-btn" data-tab="query-product" onclick="showInvTab('query-product')">查詢產品</button>
-      <button class="inv-tab-btn" data-tab="record" onclick="showInvTab('record')">紀錄狀態</button>
+      <button class="inv-tab-btn" data-tab="record" onclick="showInvTab('record')">物質狀態編輯</button>
       <button class="inv-tab-btn" data-tab="products" onclick="showInvTab('products')">產品組合管理</button>
+      <button class="inv-tab-btn" data-tab="manage-country" onclick="showInvTab('manage-country')">管理國家清單</button>
       <button class="inv-tab-btn" data-tab="import" onclick="showInvTab('import')">批次匯入</button>
     </div>
 
@@ -458,6 +449,19 @@
             <button class="btn-primary" onclick="confirmImport()">確認匯入（新增／更新）</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 管理國家清單 -->
+    <div class="inv-subpage" id="inv-tab-manage-country">
+      <div class="card">
+        <h2>管理國家清單</h2>
+        <div id="country-manage-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
+        <div class="form-grid-2">
+          <div><label>國家代碼</label><input type="text" id="new-country-code" placeholder="例如：ANVISA（英數，將自動轉大寫）" /></div>
+          <div><label>顯示名稱</label><input type="text" id="new-country-label" placeholder="例如：巴西 ANVISA" /></div>
+        </div>
+        <button class="btn-secondary" onclick="addCountry()" style="margin-top:10px">＋ 新增國家</button>
       </div>
     </div>
 
