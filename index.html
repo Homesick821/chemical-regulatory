@@ -361,7 +361,7 @@
     <!-- 產品組合管理 -->
     <div class="inv-subpage" id="inv-tab-products">
       <div class="card">
-        <h2>新增產品組合</h2>
+        <h2 id="pc-form-title">新增產品組合</h2>
         <div class="form-full"><label>產品名稱 <span style="color:var(--amber)">*</span></label><input type="text" id="pc-name" placeholder="例如：清潔劑配方 A" /></div>
         <label>成分（CAS No.）</label>
         <div class="multiselect-wrapper">
@@ -374,7 +374,8 @@
         <br/>
         <div id="pc-pct-rows"></div>
         <div class="form-full"><label>備註</label><textarea id="pc-remarks" placeholder="選填"></textarea></div>
-        <button class="btn-primary" onclick="submitProduct()">儲存產品組合</button>
+        <button class="btn-primary" id="pc-submit-btn" onclick="submitProduct()">儲存產品組合</button>
+        <button class="btn-secondary" id="pc-cancel-btn" onclick="pcCancelEdit()" style="display:none;margin-left:8px">取消編輯</button>
       </div>
       <div class="card" style="padding:0;overflow:hidden">
         <h2 style="padding:20px 28px 0">現有產品組合</h2>
@@ -732,7 +733,7 @@ async function initInventoryPage(){
   loadProductsForBrowse();
   refreshImpCountrySelect();
   refreshCountryManageUI();
-  if(!document.getElementById('inv-rows-record').children.length) addInvRow('record');
+  if(!document.getElementById('inv-rows-record').children.length) recRenderAllCountryRows([]);
 }
 
 function showInvTab(name){
@@ -823,10 +824,17 @@ async function recSelectSubstance(key){
   document.getElementById('rec-cas-search').value='';document.getElementById('rec-cas-dropdown').classList.remove('open');
   const col=keyKind(key)==='cas'?'cas_no':'description';
   const{data}=await sb.from('country_inventory_db').select('*').eq(col,keyVal(key));
-  const tbody=document.getElementById('inv-rows-record');tbody.innerHTML='';
-  if(data&&data.length){data.forEach(r=>addInvRow('record',r));} else {addInvRow('record');}
+  recRenderAllCountryRows(data||[]);
 }
-function recClearSubstance(){recSelectedKey=null;document.getElementById('rec-cas-tag').innerHTML='';const tbody=document.getElementById('inv-rows-record');tbody.innerHTML='';addInvRow('record');}
+/* 依目前已建立的國家清單，逐一列出每個國家；已有紀錄的帶入原值，尚未確認過的預設狀態為 Unknown */
+function recRenderAllCountryRows(existingRows){
+  const byCountry={};(existingRows||[]).forEach(r=>{byCountry[r.country_code]=r;});
+  const tbody=document.getElementById('inv-rows-record');tbody.innerHTML='';
+  COUNTRY_LIST.forEach(c=>{
+    addInvRow('record', byCountry[c] || {country_code:c, status:'Unknown'});
+  });
+}
+function recClearSubstance(){recSelectedKey=null;document.getElementById('rec-cas-tag').innerHTML='';recRenderAllCountryRows([]);}
 
 function countrySelect(val=''){return `<select>${COUNTRY_LIST.map(c=>`<option value="${c}" ${c===val?'selected':''}>${COUNTRY_LABEL[c]}</option>`).join('')}</select>`;}
 function invStatusInput(val=''){return `<input type="text" list="${INV_STATUS_DATALIST_ID}" placeholder="例如：Listed" value="${(val||'').replace(/"/g,'&quot;')}"/>`;}
@@ -865,6 +873,8 @@ async function submitInvRecord(){
 
 /* ---- 產品組合管理 ---- */
 let pcSelectedKeys=[];
+let pcEditingId=null;
+let pcPctValues={};
 function pcOpenDropdown(){document.getElementById('pc-ms-dropdown').classList.add('open');pcFilterOptions();}
 const pcSearchDebounced=debounce(async(q)=>{
   const dd=document.getElementById('pc-ms-dropdown');if(!dd)return;
@@ -877,7 +887,7 @@ function pcSelectSubstance(key){if(pcSelectedKeys.includes(key))return;pcSelecte
 function pcRemoveTag(key){pcSelectedKeys=pcSelectedKeys.filter(k=>k!==key);pcRenderTags();pcRenderPctRows();pcFilterOptions();}
 function pcRenderTags(){document.getElementById('pc-ms-tags').innerHTML=pcSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="pcRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');}
 function pcRenderPctRows(){
-  document.getElementById('pc-pct-rows').innerHTML=pcSelectedKeys.map(key=>`<div class="form-grid-2" style="align-items:end;margin-bottom:8px"><div style="font-size:0.85rem;padding-top:8px">${keyLabel(key)} <span style="color:var(--text-muted);font-size:0.75rem">(${keyKind(key)==='cas'?keyVal(key):'無 CAS'})</span></div><div><input type="text" class="pct-input" data-key="${key.replace(/"/g,'&quot;')}" placeholder="%（選填）"/></div></div>`).join('');
+  document.getElementById('pc-pct-rows').innerHTML=pcSelectedKeys.map(key=>`<div class="form-grid-2" style="align-items:end;margin-bottom:8px"><div style="font-size:0.85rem;padding-top:8px">${keyLabel(key)} <span style="color:var(--text-muted);font-size:0.75rem">(${keyKind(key)==='cas'?keyVal(key):'無 CAS'})</span></div><div><input type="text" class="pct-input" data-key="${key.replace(/"/g,'&quot;')}" placeholder="%（選填）" value="${(pcPctValues[key]!=null?pcPctValues[key]:'')}"/></div></div>`).join('');
 }
 async function submitProduct(){
   const name=document.getElementById('pc-name').value.trim();
@@ -885,19 +895,51 @@ async function submitProduct(){
   if(!name)return toast('請填寫產品名稱',true);
   if(!pcSelectedKeys.length)return toast('請至少選擇一個成分',true);
   for(const key of pcSelectedKeys){ if(keyKind(key)==='cas') await ensureSubstanceRegistered(keyVal(key)); }
-  const{data:prod,error:e1}=await sb.from('product_db').insert({product_name:name,remarks}).select().single();
-  if(e1)return toast('儲存失敗：'+e1.message,true);
-  const rows=pcSelectedKeys.map(key=>{
+  const rowsFor=(productId)=>pcSelectedKeys.map(key=>{
     const pctEl=document.querySelector(`.pct-input[data-key="${CSS.escape(key)}"]`);
     const pct=pctEl&&pctEl.value.trim()?parseFloat(pctEl.value.trim()):null;
     const isCas=keyKind(key)==='cas';
-    return {product_id:prod.id, cas_no:isCas?keyVal(key):null, description:isCas?null:keyVal(key), percentage:pct};
+    return {product_id:productId, cas_no:isCas?keyVal(key):null, description:isCas?null:keyVal(key), percentage:pct};
   });
-  await sb.from('product_composition').insert(rows);
-  toast('產品組合已儲存！');
+  if(pcEditingId){
+    const{error:eUp}=await sb.from('product_db').update({product_name:name,remarks}).eq('id',pcEditingId);
+    if(eUp)return toast('更新失敗：'+eUp.message,true);
+    await sb.from('product_composition').delete().eq('product_id',pcEditingId);
+    const{error:eIns}=await sb.from('product_composition').insert(rowsFor(pcEditingId));
+    if(eIns)return toast('更新失敗：'+eIns.message,true);
+    toast('產品組合已更新！');
+  } else {
+    const{data:prod,error:e1}=await sb.from('product_db').insert({product_name:name,remarks}).select().single();
+    if(e1)return toast('儲存失敗：'+e1.message,true);
+    await sb.from('product_composition').insert(rowsFor(prod.id));
+    toast('產品組合已儲存！');
+  }
+  pcCancelEdit();
+  loadProductsForBrowse();loadProductsForQuery();
+}
+async function editProduct(id){
+  const{data:prod}=await sb.from('product_db').select('*').eq('id',id).single();
+  if(!prod)return toast('讀取失敗',true);
+  const{data:comp}=await sb.from('product_composition').select('*').eq('product_id',id);
+  pcEditingId=id;
+  document.getElementById('pc-name').value=prod.product_name||'';
+  document.getElementById('pc-remarks').value=prod.remarks||'';
+  pcSelectedKeys=(comp||[]).map(c=>c.cas_no?mkKey('cas',c.cas_no):mkKey('desc',c.description));
+  pcPctValues={};(comp||[]).forEach(c=>{const key=c.cas_no?mkKey('cas',c.cas_no):mkKey('desc',c.description);pcPctValues[key]=c.percentage!=null?c.percentage:'';});
+  pcRenderTags();pcRenderPctRows();
+  document.getElementById('pc-form-title').textContent='編輯產品組合：'+prod.product_name;
+  document.getElementById('pc-submit-btn').textContent='更新產品組合';
+  document.getElementById('pc-cancel-btn').style.display='inline-block';
+  showInvTab('products');
+  document.getElementById('pc-name').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function pcCancelEdit(){
+  pcEditingId=null;pcPctValues={};
   document.getElementById('pc-name').value='';document.getElementById('pc-remarks').value='';
   pcSelectedKeys=[];pcRenderTags();pcRenderPctRows();
-  loadProductsForBrowse();loadProductsForQuery();
+  document.getElementById('pc-form-title').textContent='新增產品組合';
+  document.getElementById('pc-submit-btn').textContent='儲存產品組合';
+  document.getElementById('pc-cancel-btn').style.display='none';
 }
 async function loadProductsForBrowse(){
   const{data:prods}=await sb.from('product_db').select('*').order('product_name');
@@ -905,7 +947,7 @@ async function loadProductsForBrowse(){
   const cnt={};(comps||[]).forEach(c=>{cnt[c.product_id]=(cnt[c.product_id]||0)+1;});
   const tbody=document.getElementById('pc-browse-body');
   if(!prods?.length){tbody.innerHTML=`<tr><td colspan="4"><div class="empty-state"><p>尚無產品組合，請先新增。</p></div></td></tr>`;return;}
-  tbody.innerHTML=prods.map(p=>`<tr><td>${p.product_name}</td><td>${cnt[p.id]||0} 項</td><td style="color:var(--text-secondary)">${p.remarks||'—'}</td><td><button class="btn-edit-row" onclick="deleteProduct(${p.id})">刪除</button></td></tr>`).join('');
+  tbody.innerHTML=prods.map(p=>`<tr><td>${p.product_name}</td><td>${cnt[p.id]||0} 項</td><td style="color:var(--text-secondary)">${p.remarks||'—'}</td><td><button class="btn-edit-row" onclick="editProduct(${p.id})">編輯</button> <button class="btn-edit-row" onclick="deleteProduct(${p.id})">刪除</button></td></tr>`).join('');
 }
 async function deleteProduct(id){
   if(!confirm('確定要刪除此產品組合？'))return;
