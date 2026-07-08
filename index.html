@@ -831,17 +831,18 @@ function recRenderAllCountryRows(existingRows){
   const byCountry={};(existingRows||[]).forEach(r=>{byCountry[r.country_code]=r;});
   const tbody=document.getElementById('inv-rows-record');tbody.innerHTML='';
   COUNTRY_LIST.forEach(c=>{
-    addInvRow('record', byCountry[c] || {country_code:c, status:'Unknown'});
+    addInvRow('record', byCountry[c] || {country_code:c, status:''});
   });
 }
 function recClearSubstance(){recSelectedKey=null;document.getElementById('rec-cas-tag').innerHTML='';recRenderAllCountryRows([]);}
 
 function countrySelect(val=''){return `<select>${COUNTRY_LIST.map(c=>`<option value="${c}" ${c===val?'selected':''}>${COUNTRY_LABEL[c]}</option>`).join('')}</select>`;}
 function invStatusInput(val=''){return `<input type="text" list="${INV_STATUS_DATALIST_ID}" placeholder="例如：Listed" value="${(val||'').replace(/"/g,'&quot;')}"/>`;}
+function todayStr(){const d=new Date();const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;}
 function addInvRow(target,data={}){
   const tbody=document.getElementById('inv-rows-'+target);
   const tr=document.createElement('tr');
-  tr.innerHTML=`<td>${countrySelect(data.country_code||'')}</td><td>${invStatusInput(data.status||'')}</td><td><input type="text" placeholder="備註" value="${(data.remarks||'').replace(/"/g,'&quot;')}"/></td><td><input type="date" value="${data.last_verified||''}"/></td><td><input type="text" placeholder="法規條文/公告" value="${(data.source_ref||'').replace(/"/g,'&quot;')}"/></td><td><button class="btn-del-row" onclick="this.closest('tr').remove()">✕</button></td>`;
+  tr.innerHTML=`<td>${countrySelect(data.country_code||'')}</td><td>${invStatusInput(data.status||'')}</td><td><input type="text" placeholder="備註" value="${(data.remarks||'').replace(/"/g,'&quot;')}"/></td><td><input type="date" value="${data.last_verified||todayStr()}"/></td><td><input type="text" placeholder="法規條文/公告" value="${(data.source_ref||'').replace(/"/g,'&quot;')}"/></td><td><button class="btn-del-row" onclick="this.closest('tr').remove()">✕</button></td>`;
   tbody.appendChild(tr);
 }
 function getInvRows(target){
