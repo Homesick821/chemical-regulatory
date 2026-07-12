@@ -166,6 +166,26 @@
     .diff-missing { color: #A63D2F; font-weight: 600; }
     .diff-same { color: var(--text-muted); }
     .pct-input { width: 72px !important; display: inline-block; }
+
+    /* ===== 危害計算器插件 ===== */
+    .hz-legend-swatch { display:inline-block; width:13px; height:13px; border-radius:4px; margin-right:5px; vertical-align:middle; border:1px solid rgba(0,0,0,0.06); }
+    .hz-chip { display:inline-flex; align-items:center; gap:6px; border-radius:9px; padding:6px 10px; font-size:0.78rem; font-weight:600; color:#fff; font-family:'Noto Serif TC',serif; line-height:1.3; }
+    .hz-chip small { font-weight:400; opacity:0.9; font-size:0.68rem; }
+    .hz-chip.hz-empty { background:var(--hm-na); color:var(--text-muted); font-weight:500; }
+    .hz-class-block { margin-bottom:16px; }
+    .hz-class-title { font-size:0.78rem; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; font-family:'Inter',sans-serif; }
+    .hz-chip-row { display:flex; flex-wrap:wrap; gap:8px; }
+    .hz-subtype-table { width:100%; border-collapse:collapse; margin-bottom:6px; }
+    .hz-subtype-table th { font-size:0.7rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.05em; padding:6px 8px; text-align:left; font-family:'Inter',sans-serif; border-bottom:1.5px solid var(--cream-dark); }
+    .hz-subtype-table td { padding:5px 8px; font-size:0.83rem; }
+    .hz-sds-card { border-left:4px solid var(--cream-dark); background:var(--cream); border-radius:10px; padding:14px 16px; margin-bottom:10px; }
+    .hz-sds-card .hz-sds-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; flex-wrap:wrap; gap:6px; }
+    .hz-sds-card .hz-sds-name { font-weight:600; color:var(--green-deep); }
+    .hz-sds-card .hz-sds-pct { font-size:0.8rem; color:var(--text-secondary); }
+    .hz-warn { background:#FFF6E8; border:1px solid #F0DBA8; color:#8A6B1E; border-radius:10px; padding:10px 14px; font-size:0.8rem; margin-bottom:12px; line-height:1.6; }
+    .hz-toggle-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+    .hz-toggle-row input[type=checkbox] { width:16px; height:16px; }
+    .hz-mini-input { width:88px !important; display:inline-block; }
   </style>
 </head>
 <body>
@@ -210,11 +230,11 @@
       <div class="card-desc">查詢與紀錄物質在各國既有化學物質清單之狀態</div>
       <div class="card-arrow">進入 →</div>
     </div>
-    <div class="bento-card card-tbd2" style="cursor:default;">
-      <div class="card-icon">📋</div>
-      <div class="card-title">即將推出</div>
-      <div class="card-desc">更多功能正在開發中</div>
-      <div><span class="coming-soon">Coming Soon</span></div>
+    <div class="bento-card card-tbd2" onclick="showInner('hazcalc')">
+      <div class="card-icon">🧪</div>
+      <div class="card-title">危害分類計算器</div>
+      <div class="card-desc">建檔物質 GHS 危害分類，依產品組合計算混合物分級與 SDS 揭露成分</div>
+      <div class="card-arrow">進入 →</div>
     </div>
   </div>
 </div>
@@ -424,6 +444,82 @@
   </div>
 </div>
 
+<!-- HAZARD CALCULATOR -->
+<div id="inner-hazcalc" class="inner-page">
+  <button class="back-btn" onclick="showHome()">← 返回首頁</button>
+  <div class="inner-content">
+    <div class="page-header"><h1>危害分類計算器</h1><p>依 GHS Rev.11 規則建檔物質危害分類，並依產品組合計算混合物分級與 SDS 應揭露成分</p></div>
+
+    <div class="inv-tabs">
+      <button class="inv-tab-btn active" data-tab="hz-classify" onclick="showHzTab('hz-classify')">物質危害分類建檔</button>
+      <button class="inv-tab-btn" data-tab="hz-calc" onclick="showHzTab('hz-calc')">混合物危害計算</button>
+      <button class="inv-tab-btn" data-tab="hz-settings" onclick="showHzTab('hz-settings')">計算設定</button>
+    </div>
+
+    <!-- 物質危害分類建檔 -->
+    <div class="inv-subpage active" id="hz-tab-hz-classify">
+      <div class="card">
+        <h2>選擇物質（CAS No.）</h2>
+        <label>CAS No.（可輸入 CAS 或名稱搜尋既有物質，或直接輸入新 CAS No.）</label>
+        <div class="multiselect-wrapper">
+          <div class="multiselect-input" id="hzc-cas-input" onclick="document.getElementById('hzc-cas-search').focus()">
+            <div id="hzc-cas-tag"></div>
+            <input class="multiselect-search" id="hzc-cas-search" placeholder="輸入 CAS No. 或物質名稱搜尋..." oninput="hzcFilterOptions()" onfocus="hzcOpenDropdown()" />
+          </div>
+          <div class="multiselect-dropdown" id="hzc-cas-dropdown"></div>
+        </div>
+      </div>
+      <div class="card" id="hzc-form-card" style="display:none">
+        <h2>危害分類項目（<span id="hzc-current-name"></span>）</h2>
+        <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:12px;line-height:1.6">每一列代表一個「危害類別＋子項目」的分類結果。急毒性與水環境危害可填「實測值」，有填時計算優先採用實測值，未填才用 Category 查表估算值。</p>
+        <table class="hz-subtype-table">
+          <thead><tr><th style="width:16%">危害類別</th><th style="width:16%">子項目</th><th style="width:12%">Category</th><th style="width:12%">H-code</th><th style="width:16%">實測值（選填）</th><th style="width:20%">備註</th><th></th></tr></thead>
+          <tbody id="hzc-rows"></tbody>
+        </table>
+        <button class="btn-add-row" onclick="hzcAddRow()">＋ 新增分類列</button>
+        <div style="margin-top:16px"><button class="btn-primary" onclick="hzcSubmit()">儲存危害分類</button></div>
+      </div>
+    </div>
+
+    <!-- 混合物危害計算 -->
+    <div class="inv-subpage" id="hz-tab-hz-calc">
+      <div class="card">
+        <h2>選擇產品組合</h2>
+        <label>產品</label>
+        <select id="hzcalc-product-select" onchange="hzLoadProduct()"><option value="">請選擇產品...</option></select>
+        <div class="form-grid-2" style="margin-top:14px">
+          <div><label>混合物動黏度 40°C（mm²/s，選填，用於吸入性危害判定）</label><input type="text" id="hzcalc-viscosity" placeholder="例如：18.5" /></div>
+          <div style="align-self:end"><button class="btn-secondary" onclick="hzSaveViscosity()">儲存動黏度到此產品</button></div>
+        </div>
+      </div>
+      <div id="hzcalc-warnings"></div>
+      <div id="hzcalc-result" style="display:none">
+        <div class="card">
+          <h2>混合物危害分級結果</h2>
+          <div id="hzcalc-result-body"></div>
+        </div>
+        <div class="card">
+          <h2>SDS 應揭露成分（依 GHS Table 1.5.1 判定）</h2>
+          <div id="hzcalc-sds-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 計算設定 -->
+    <div class="inv-subpage" id="hz-tab-hz-settings">
+      <div class="card">
+        <h2>進階規則開關</h2>
+        <div class="hz-toggle-row">
+          <input type="checkbox" id="hz-setting-stot3" onchange="hzSaveSettings()" />
+          <label style="margin:0;text-transform:none;font-weight:400;font-size:0.85rem;color:var(--text-primary)">STOT-SE / STOT-RE：Category 1 成分濃度落在 1.0%–10% 時，同時額外標記混合物為 Category 2（部分主管機關規範，非 GHS 正文通則）</label>
+        </div>
+        <p style="font-size:0.78rem;color:var(--text-muted);line-height:1.6">此設定為全站共用，異動後立即套用於所有後續計算。</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <!-- EDIT MODAL -->
 <div class="modal-overlay" id="edit-modal">
   <div class="modal">
@@ -468,7 +564,7 @@ function validateCAS(cas){return /^\d{2,7}-\d{2}-\d$/.test(cas.trim());}
 function toast(msg,isError=false){const t=document.getElementById('toast');t.textContent=msg;t.className=isError?'error show':'show';setTimeout(()=>{t.className=isError?'error':'';},3000);}
 
 function showHome(){document.getElementById('page-home').style.display='block';document.querySelectorAll('.inner-page').forEach(p=>p.classList.remove('active'));}
-function showInner(name){document.getElementById('page-home').style.display='none';document.querySelectorAll('.inner-page').forEach(p=>p.classList.remove('active'));document.getElementById('inner-'+name).classList.add('active');if(name==='scan')loadSubstancesForScan();if(name==='browse')loadBrowse();if(name==='inventory')initInventoryPage();}
+function showInner(name){document.getElementById('page-home').style.display='none';document.querySelectorAll('.inner-page').forEach(p=>p.classList.remove('active'));document.getElementById('inner-'+name).classList.add('active');if(name==='scan')loadSubstancesForScan();if(name==='browse')loadBrowse();if(name==='inventory')initInventoryPage();if(name==='hazcalc')initHazCalcPage();}
 
 function statusSelect(val=''){return `<select style="width:100%">${STATUS_OPTIONS.map(s=>`<option value="${s}" ${s===val?'selected':''}>${s}</option>`).join('')}</select>`;}
 function addRegRow(target,data={}){const tbody=document.getElementById('reg-rows-'+target);const tr=document.createElement('tr');tr.innerHTML=`<td><input type="text" placeholder="例如：REACH" value="${data.regulation_name||''}" /></td><td>${statusSelect(data.status||'')}</td><td><input type="text" placeholder="備註（選填）" value="${data.remarks||''}" /></td><td><button class="btn-del-row" onclick="this.closest('tr').remove()">✕</button></td>`;tbody.appendChild(tr);}
@@ -1154,6 +1250,521 @@ async function confirmImport(){
   document.getElementById('imp-preview').style.display='none';
   document.getElementById('imp-text').value='';
 }
+
+/* ===================== 危害分類計算器插件 ===================== */
+
+/* ===== HAZARD_DEFS：物質層危害分類定義（僅供分類建檔下拉選單與色階顯示使用） ===== */
+const HAZARD_DEFS = [
+  { key:'acute', label:'Acute toxicity', zh:'急毒性', color:'#57BB8A', subTypes:[
+    { key:'oral', label:'Oral', cats:[{v:'1',h:'H300'},{v:'2',h:'H300'},{v:'3',h:'H301'},{v:'4',h:'H302'},{v:'5',h:'H303'}] },
+    { key:'dermal', label:'Dermal', cats:[{v:'1',h:'H310'},{v:'2',h:'H310'},{v:'3',h:'H311'},{v:'4',h:'H312'},{v:'5',h:'H313'}] },
+    { key:'inhalation', label:'Inhalation', cats:[{v:'1',h:'H330'},{v:'2',h:'H330'},{v:'3',h:'H331'},{v:'4',h:'H332'},{v:'5',h:'H333'}] }
+  ]},
+  { key:'skineye', label:'Skin/Eye serious damage', zh:'皮膚/眼睛嚴重損傷', color:'#57BB8A', subTypes:[
+    { key:'skin', label:'Skin', cats:[{v:'1',h:'H314'},{v:'2',h:'H315'},{v:'3',h:'H316'}] },
+    { key:'eye', label:'Eye', cats:[{v:'1',h:'H318'},{v:'2A',h:'H319'},{v:'2B',h:'H320'}] }
+  ]},
+  { key:'sens', label:'Skin/Respiratory sensitization', zh:'皮膚/呼吸道過敏', color:'#FFD666', subTypes:[
+    { key:'skin', label:'Skin', cats:[{v:'1',h:'H317'},{v:'1A',h:'H317'},{v:'1B',h:'H317'}] },
+    { key:'respiratory', label:'Respiratory', cats:[{v:'1',h:'H334'},{v:'1A',h:'H334'},{v:'1B',h:'H334'}] }
+  ]},
+  { key:'mutagen', label:'Germ cell mutagenicity', zh:'生殖細胞致突變性', color:'#FFD666', subTypes:[
+    { key:'germmut', label:'Germ Mut.', cats:[{v:'1A',h:'H340'},{v:'1B',h:'H340'},{v:'2',h:'H341'}] }
+  ]},
+  { key:'carc', label:'Carcinogenicity', zh:'致癌性', color:'#FFD666', subTypes:[
+    { key:'cmr', label:'CMR', cats:[{v:'1A',h:'H350'},{v:'1B',h:'H350'},{v:'2',h:'H351'}] }
+  ]},
+  { key:'repro', label:'Reproductive toxicity', zh:'生殖毒性', color:'#FFD666', subTypes:[
+    { key:'reprod', label:'Reprod. tox.', cats:[{v:'1A',h:'H360'},{v:'1B',h:'H360'},{v:'2',h:'H361'},{v:'Additional',h:'H362'}] }
+  ]},
+  { key:'stotse', label:'STOT — Single Exposure', zh:'單一暴露標的器官毒性', color:'#57BB8A', subTypes:[
+    { key:'se', label:'STOT SE', cats:[{v:'1',h:'H370'},{v:'2',h:'H371'},{v:'3-H335',h:'H335'},{v:'3-H336',h:'H336'}] }
+  ]},
+  { key:'stotre', label:'STOT — Repeated Exposure', zh:'重複暴露標的器官毒性', color:'#57BB8A', subTypes:[
+    { key:'re', label:'STOT RE', cats:[{v:'1',h:'H372'},{v:'2',h:'H373'}] }
+  ]},
+  { key:'aspiration', label:'Aspiration hazard', zh:'吸入性危害', color:'#D4843A', subTypes:[
+    { key:'asp', label:'Aspiration', cats:[{v:'1',h:'H304'},{v:'2',h:'H305'}] }
+  ]},
+  { key:'aquatic', label:'Hazardous to the Aquatic Environment', zh:'水環境危害', color:'#46ADFF', subTypes:[
+    { key:'acuteAq', label:'Acute', cats:[{v:'1',h:'H400'},{v:'2',h:'H401'},{v:'3',h:'H402'}] },
+    { key:'chronicAq', label:'Chronic', cats:[{v:'1',h:'H410'},{v:'2',h:'H411'},{v:'3',h:'H412'},{v:'4',h:'H413'}] }
+  ]}
+];
+function getHazardDef(key){ return HAZARD_DEFS.find(h=>h.key===key); }
+function getSubTypeDef(hazKey,subKey){ const h=getHazardDef(hazKey); return h&&h.subTypes.find(s=>s.key===subKey); }
+function getCatDef(hazKey,subKey,catVal){ const s=getSubTypeDef(hazKey,subKey); return s&&s.cats.find(c=>c.v===catVal); }
+function tintColor(hex, ratio){
+  ratio = Math.max(0, Math.min(1, ratio));
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  const nr=Math.round(r+(255-r)*ratio), ng=Math.round(g+(255-g)*ratio), nb=Math.round(b+(255-b)*ratio);
+  return `rgb(${nr},${ng},${nb})`;
+}
+function hzColorFor(hazKey,subKey,catVal){
+  const h=getHazardDef(hazKey); const s=getSubTypeDef(hazKey,subKey);
+  if(!h||!s) return '#ccc';
+  const idx=s.cats.findIndex(c=>c.v===catVal);
+  const n=Math.max(1,s.cats.length-1);
+  const ratio = idx<0?0.5:(idx/n)*0.6;
+  return tintColor(h.color, ratio);
+}
+
+/* ===== ATE 轉換表（Table 3.1.2）===== */
+const ATE_ROUTES = {
+  oral:   { boundaries:[5,50,300,2000,5000], pt:[0.5,5,100,500,2500] },
+  dermal: { boundaries:[50,200,1000,2000,5000], pt:[5,50,300,1100,2500] },
+  gas:    { boundaries:[100,500,2500,20000,20000], pt:[10,100,700,4500,5000] },
+  vapor:  { boundaries:[0.5,2.0,10,20,20], pt:[0.05,0.5,3,11,21] },
+  dust:   { boundaries:[0.05,0.5,1.0,5.0,5.0], pt:[0.005,0.05,0.5,1.5,5] }
+};
+const ATE_HCODES = { oral:['H300','H300','H301','H302','H303'], dermal:['H310','H310','H311','H312','H313'], gas:['H330','H330','H331','H332','H333'], vapor:['H330','H330','H331','H332','H333'], dust:['H330','H330','H331','H332','H333'] };
+
+function ateForCategory(route,cat){ const i=Number(cat)-1; return ATE_ROUTES[route].pt[i]; }
+function classifyATEmix(route,ateMix){
+  const b=ATE_ROUTES[route].boundaries;
+  for(let i=0;i<b.length;i++){ if(ateMix<=b[i]) return { cat:String(i+1), hcode:ATE_HCODES[route][i] }; }
+  return null;
+}
+
+/* ===== M factor ===== */
+function acuteMFactor(lc50){
+  if(lc50==null || !(lc50>0) || lc50>1) return 1;
+  const exp = Math.floor(Math.log10(lc50));   // 0.1<lc50<=1 -> exp=-1 -> steps 0 -> M=1
+  const steps = Math.max(0, -1-exp);
+  return Math.pow(10, steps);
+}
+function chronicMFactor(noec, rapid){
+  if(noec==null || !(noec>0)) return 1;
+  const eff = rapid ? noec*10 : noec; // 快速降解物質：同一 M 值對應之 NOEC 門檻下移一個數量級（近似處理，詳見說明）
+  if(eff>0.1) return 1;
+  const exp = Math.floor(Math.log10(eff));
+  const steps = Math.max(0, -1-exp);
+  return Math.pow(10, steps);
+}
+
+
+
+/* ingredient: { cas, pct, hazards:[{hazardClass,subType,category,hCode,inhForm,actualATE,actualLC50,actualNOEC,rapid}] } */
+
+function entriesFor(ingredients, hazardClass, subType){
+  const out=[];
+  ingredients.forEach(ing=>{
+    (ing.hazards||[]).forEach(hz=>{
+      if(hz.hazardClass===hazardClass && hz.subType===subType) out.push({...hz, cas:ing.cas, pct:Number(ing.pct)||0});
+    });
+  });
+  return out;
+}
+
+function computeAcuteToxicity(ingredients){
+  const routes=['oral','dermal','gas','vapor','dust'];
+  const results=[];
+  routes.forEach(route=>{
+    const subType = route==='oral'||route==='dermal' ? route : 'inhalation';
+    let list = entriesFor(ingredients, 'acute', subType);
+    if(subType==='inhalation') list = list.filter(x=>(x.inhForm||'gas')===route);
+    const gate1 = list.filter(x=>x.pct>=1);
+    if(!gate1.length) return;
+    let sumInvATE=0;
+    gate1.forEach(x=>{
+      const ate = x.actualATE!=null ? Number(x.actualATE) : ateForCategory(route, x.category);
+      if(ate>0) sumInvATE += x.pct/ate;
+    });
+    if(sumInvATE<=0) return;
+    const ateMix = 100/sumInvATE;
+    const cls = classifyATEmix(route, ateMix);
+    if(cls) results.push({ hazardClass:'acute', subType, route, category:cls.cat, hCode:cls.hcode, ateMix, contributing:gate1.map(x=>x.cas) });
+  });
+  return results;
+}
+
+function computeSkinCorrosion(ingredients){
+  const list = entriesFor(ingredients,'skineye','skin').filter(x=>x.pct>=1);
+  const sum = cat => list.filter(x=>x.category===cat).reduce((s,x)=>s+x.pct,0);
+  const c1=sum('1'), c2=sum('2'), c3=sum('3');
+  const phOverride = list.some(x=>x.pct>=1 && x.phValue!=null && (Number(x.phValue)<=2 || Number(x.phValue)>=11.5));
+  let out=null;
+  if(phOverride || c1>=5) out={category:'1',hCode:'H314'};
+  else if((10*c1+c2)>=10 || c2>=10) out={category:'2',hCode:'H315'};
+  else if(c1>=1) out={category:'2',hCode:'H315'};
+  else if((10*c1+c2+c3)>=10 || (c2>=1&&c2<10) || c3>=10) out={category:'3',hCode:'H316'};
+  if(!out) return [];
+  return [{ hazardClass:'skineye', subType:'skin', category:out.category, hCode:out.hCode, contributing:list.map(x=>x.cas) }];
+}
+
+function computeEyeDamage(ingredients){
+  const skin1 = entriesFor(ingredients,'skineye','skin').filter(x=>x.category==='1'&&x.pct>=1);
+  const eye = entriesFor(ingredients,'skineye','eye').filter(x=>x.pct>=1);
+  const eye1 = eye.filter(x=>x.category==='1');
+  const eye2 = eye.filter(x=>x.category==='2A'||x.category==='2B'||x.category==='2');
+  const casSeen=new Set();
+  let combinedCat1=0;
+  [...skin1,...eye1].forEach(x=>{ if(!casSeen.has(x.cas)){casSeen.add(x.cas); combinedCat1+=x.pct;} });
+  const sumEye2 = eye2.reduce((s,x)=>s+x.pct,0);
+  const phOverride = [...skin1,...eye,...eye2].some(x=>x.pct>=1 && x.phValue!=null && (Number(x.phValue)<=2||Number(x.phValue)>=11.5));
+  let out=null;
+  if(phOverride || combinedCat1>=3) out={category:'1',hCode:'H318'};
+  else if((10*combinedCat1+sumEye2)>=10 || combinedCat1>=1 || sumEye2>=10) out={category:'2A',hCode:'H319'};
+  if(!out) return [];
+  return [{ hazardClass:'skineye', subType:'eye', category:out.category, hCode:out.hCode, contributing:[...skin1,...eye1,...eye2].map(x=>x.cas) }];
+}
+
+const SENS_THRESHOLD = { skin:{'1':0.1,'1A':0.1,'1B':1.0}, respiratory:{'1':0.1,'1A':0.1,'1B':1.0} };
+function computeSensitization(ingredients){
+  const out=[];
+  ['skin','respiratory'].forEach(subType=>{
+    const list = entriesFor(ingredients,'sens',subType);
+    const triggered = list.filter(x=>x.pct >= (SENS_THRESHOLD[subType][x.category]!=null?SENS_THRESHOLD[subType][x.category]:0.1));
+    if(!triggered.length) return;
+    const order=['1A','1B','1'];
+    triggered.sort((a,b)=>order.indexOf(a.category)-order.indexOf(b.category));
+    const top=triggered[0];
+    out.push({ hazardClass:'sens', subType, category:top.category, hCode:top.hCode, contributing:triggered.map(x=>x.cas) });
+  });
+  return out;
+}
+
+function computeSingleTrigger(ingredients, hazardClass, subType, thresholds, order){
+  const list = entriesFor(ingredients, hazardClass, subType);
+  const triggered = list.filter(x=> x.pct >= (thresholds[x.category]!=null?thresholds[x.category]:0.1));
+  if(!triggered.length) return [];
+  triggered.sort((a,b)=>order.indexOf(a.category)-order.indexOf(b.category));
+  const top=triggered[0];
+  return [{ hazardClass, subType, category:top.category, hCode:top.hCode, contributing:triggered.map(x=>x.cas) }];
+}
+
+function computeMutagenicity(ingredients){
+  return computeSingleTrigger(ingredients,'mutagen','germmut',{'1A':0.1,'1B':0.1,'2':1.0},['1A','1B','2']);
+}
+function computeCarcinogenicity(ingredients){
+  return computeSingleTrigger(ingredients,'carc','cmr',{'1A':0.1,'1B':0.1,'2':0.1},['1A','1B','2']);
+}
+function computeReproductive(ingredients){
+  return computeSingleTrigger(ingredients,'repro','reprod',{'1A':0.1,'1B':0.1,'2':0.1,'Additional':0.1},['1A','1B','2','Additional']);
+}
+
+function computeSTOT(ingredients, hazardClass, subType, settings){
+  const list = entriesFor(ingredients, hazardClass, subType);
+  const out=[];
+  const cat1list = list.filter(x=>x.category==='1' && x.pct>=1);
+  const cat2list = list.filter(x=>x.category==='2' && x.pct>=1);
+  if(cat1list.length) out.push({ hazardClass, subType, category:'1', hCode: cat1list[0].hCode||'H370', contributing:cat1list.map(x=>x.cas) });
+  if(cat2list.length) out.push({ hazardClass, subType, category:'2', hCode: cat2list[0].hCode||'H371', contributing:cat2list.map(x=>x.cas) });
+  if(hazardClass==='stotse'){
+    ['3-H335','3-H336'].forEach(cv=>{
+      const l=list.filter(x=>x.category===cv && x.pct>=1);
+      const sum=l.reduce((s,x)=>s+x.pct,0);
+      if(sum>=20) out.push({ hazardClass, subType, category:cv, hCode: cv==='3-H335'?'H335':'H336', contributing:l.map(x=>x.cas) });
+    });
+  }
+  if(settings && settings.stotCat3FromCat1IngredientEnabled){
+    const between = cat1list.filter(x=>x.pct>=1 && x.pct<10);
+    if(between.length) out.push({ hazardClass, subType, category:'2', hCode: hazardClass==='stotse'?'H371':'H373', note:'依 note3 開關由 Category1 成分1~10%觸發', contributing:between.map(x=>x.cas) });
+  }
+  return out;
+}
+
+function computeAspiration(ingredients, viscosity){
+  const list = entriesFor(ingredients,'aspiration','asp');
+  const sum1 = list.filter(x=>x.category==='1').reduce((s,x)=>s+x.pct,0);
+  const sum2 = list.filter(x=>x.category==='2').reduce((s,x)=>s+x.pct,0);
+  const out=[];
+  const viscKnown = viscosity!=null && !isNaN(viscosity);
+  if(sum1>=10 && viscKnown && viscosity<=20.5) out.push({hazardClass:'aspiration',subType:'asp',category:'1',hCode:'H304',contributing:list.filter(x=>x.category==='1').map(x=>x.cas)});
+  if(sum2>=10 && viscKnown && viscosity<=14) out.push({hazardClass:'aspiration',subType:'asp',category:'2',hCode:'H305',contributing:list.filter(x=>x.category==='2').map(x=>x.cas)});
+  return { results:out, sum1, sum2, viscKnown };
+}
+
+function computeAquatic(ingredients, subType, hcodes){
+  const list = entriesFor(ingredients,'aquatic',subType);
+  const catList = cat => list.filter(x=>x.category===cat);
+  const mOf = x => subType==='acuteAq'
+    ? (x.actualLC50!=null ? acuteMFactor(Number(x.actualLC50)) : 1)
+    : (x.actualNOEC!=null ? chronicMFactor(Number(x.actualNOEC), !!x.rapid) : 1);
+  const s1 = catList('1').reduce((s,x)=>s+x.pct*mOf(x),0);
+  const s2 = catList('2').reduce((s,x)=>s+x.pct,0);
+  const s3 = catList('3').reduce((s,x)=>s+x.pct,0);
+  const s4 = subType==='chronicAq' ? catList('4').reduce((s,x)=>s+x.pct,0) : 0;
+  let result=null;
+  if(s1>=25) result={category:'1',hCode:hcodes[0]};
+  else if((10*s1+s2)>=25) result={category:'2',hCode:hcodes[1]};
+  else if((100*s1+10*s2+s3)>=25) result={category:'3',hCode:hcodes[2]};
+  else if(subType==='chronicAq' && (s1+s2+s3+s4)>=25) result={category:'4',hCode:hcodes[3]};
+  const unknownIngredients = list.filter(x=> subType==='acuteAq' ? false : false); // reserved for future: unknown-toxicity flag
+  if(!result) return { results:[] , s1,s2,s3,s4};
+  return { results:[{hazardClass:'aquatic',subType,category:result.category,hCode:result.hCode,contributing:list.map(x=>x.cas)}], s1,s2,s3,s4 };
+}
+
+function computeMixture(ingredients, opts){
+  opts = opts || {};
+  const settings = opts.settings || {};
+  const viscosity = opts.viscosity!=null && opts.viscosity!=='' ? Number(opts.viscosity) : null;
+  const results = [];
+  results.push(...computeAcuteToxicity(ingredients));
+  results.push(...computeSkinCorrosion(ingredients));
+  results.push(...computeEyeDamage(ingredients));
+  results.push(...computeSensitization(ingredients));
+  results.push(...computeMutagenicity(ingredients));
+  results.push(...computeCarcinogenicity(ingredients));
+  results.push(...computeReproductive(ingredients));
+  results.push(...computeSTOT(ingredients,'stotse','se',settings));
+  results.push(...computeSTOT(ingredients,'stotre','re',settings));
+  const asp = computeAspiration(ingredients, viscosity);
+  results.push(...asp.results);
+  const aqA = computeAquatic(ingredients,'acuteAq',['H400','H401','H402']);
+  const aqC = computeAquatic(ingredients,'chronicAq',['H410','H411','H412','H413']);
+  results.push(...aqA.results, ...aqC.results);
+  return { results, aspirationInfo:asp };
+}
+
+/* ===== 函數B：SDS 揭露 (Table 1.5.1，物質層級 OR 判斷) ===== */
+const SDS_THRESHOLD = {
+  acute:()=>1.0, skineye:()=>1.0, sens:()=>0.1,
+  mutagen:(cat)=> (String(cat).startsWith('1')?0.1:1.0),
+  carc:()=>0.1, repro:()=>0.1, stotse:()=>1.0, stotre:()=>1.0, aspiration:()=>1.0, aquatic:()=>1.0
+};
+function shouldDisplayInSDS(ingredient){
+  return (ingredient.hazards||[]).some(hz=>{
+    const fn = SDS_THRESHOLD[hz.hazardClass];
+    if(!fn) return false;
+    return Number(ingredient.pct||0) >= fn(hz.category);
+  });
+}
+
+/* ---------- Tab 切換 ---------- */
+function showHzTab(name){
+  document.querySelectorAll('#inner-hazcalc .inv-tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  document.querySelectorAll('#inner-hazcalc .inv-subpage').forEach(p=>p.classList.toggle('active', p.id==='hz-tab-'+name));
+}
+let hzSettingsCache = { stotCat3FromCat1IngredientEnabled:false };
+async function initHazCalcPage(){
+  hzcClearSubstance();
+  await hzLoadProductSelect();
+  await hzLoadSettings();
+}
+
+/* ---------- 物質危害分類建檔：搜尋 CAS ---------- */
+let hzcCurrentCas=null, hzcCurrentName='';
+let hzcRowsData=[]; let hzcRowSeq=0;
+function hzcOpenDropdown(){document.getElementById('hzc-cas-dropdown').classList.add('open');hzcFilterOptions();}
+document.addEventListener('click',e=>{if(!e.target.closest('.multiselect-wrapper'))document.getElementById('hzc-cas-dropdown')?.classList.remove('open');});
+const hzcSearchDebounced = debounce(async(q)=>{
+  const dd=document.getElementById('hzc-cas-dropdown'); if(!dd) return;
+  const qq=q.trim();
+  if(qq.length<2){dd.innerHTML='<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">請至少輸入 2 個字搜尋（CAS No. 或物質名稱）</div>';return;}
+  dd.innerHTML='<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">搜尋中...</div>';
+  const like=`%${qq}%`;
+  const[byCas,byName]=await Promise.all([
+    sb.from('substance_db').select('cas_no,item_name').ilike('cas_no',like).limit(15),
+    sb.from('substance_db').select('cas_no,item_name').ilike('item_name',like).limit(15)
+  ]);
+  const map={};[...(byCas.data||[]),...(byName.data||[])].forEach(s=>{map[s.cas_no]=s.item_name;});
+  let html = Object.entries(map).map(([cas,name])=>`<div class="dropdown-item" onclick="hzcSelectSubstance('${cas}','${name.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${cas}</span>${name}</div>`).join('');
+  if(validateCAS(qq) && !map[qq]) html += `<div class="dropdown-item" style="color:var(--green-deep);font-weight:600" onclick="hzcSelectSubstance('${qq}','${qq}')">以此 CAS No. 建檔／查詢：「${qq}」</div>`;
+  dd.innerHTML = html || '<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質，若確定為新 CAS No.，請直接輸入完整格式（如 64-17-5）</div>';
+},300);
+function hzcFilterOptions(){hzcSearchDebounced(document.getElementById('hzc-cas-search').value);}
+async function hzcSelectSubstance(cas,name){
+  hzcCurrentCas=cas; hzcCurrentName=name;
+  document.getElementById('hzc-cas-tag').innerHTML = `<span class="tag">${name}${name===cas?'':' <span style="opacity:.75">('+cas+')</span>'}<span class="tag-remove" onclick="hzcClearSubstance()">✕</span></span>`;
+  document.getElementById('hzc-cas-search').value=''; document.getElementById('hzc-cas-dropdown').classList.remove('open');
+  document.getElementById('hzc-current-name').textContent = `${name}｜${cas}`;
+  document.getElementById('hzc-form-card').style.display='block';
+  const{data}=await sb.from('substance_hazard_db').select('*').eq('cas_no',cas);
+  hzcRowsData = (data||[]).map(r=>({ id:'r'+(hzcRowSeq++), hazardClass:r.hazard_class, subType:r.sub_type, category:r.category, hCode:r.h_code, inhForm:r.inhalation_form||'gas', phValue:r.ph_value, actualATE:r.actual_ate, actualLC50:r.actual_lc50, actualNOEC:r.actual_noec, rapid:!!r.rapidly_degradable, remarks:r.remarks||'' }));
+  if(!hzcRowsData.length) hzcAddRow();
+  hzcRenderRows();
+}
+function hzcClearSubstance(){ hzcCurrentCas=null; hzcCurrentName=''; hzcRowsData=[]; const tag=document.getElementById('hzc-cas-tag'); if(tag)tag.innerHTML=''; const card=document.getElementById('hzc-form-card'); if(card)card.style.display='none'; }
+
+function hzcAddRow(){
+  const hc = HAZARD_DEFS[0];
+  const st = hc.subTypes[0];
+  const cat = st.cats[0];
+  hzcRowsData.push({ id:'r'+(hzcRowSeq++), hazardClass:hc.key, subType:st.key, category:cat.v, hCode:cat.h, inhForm:'gas', phValue:null, actualATE:null, actualLC50:null, actualNOEC:null, rapid:false, remarks:'' });
+  hzcRenderRows();
+}
+function hzcRemoveRow(id){ hzcRowsData = hzcRowsData.filter(r=>r.id!==id); hzcRenderRows(); }
+function hzcUpdateRow(id, patch){ const row=hzcRowsData.find(r=>r.id===id); if(row) Object.assign(row,patch); }
+function hzcOnHazardClassChange(id, val){
+  const row=hzcRowsData.find(r=>r.id===id); if(!row) return;
+  const hc = getHazardDef(val); const st = hc.subTypes[0]; const cat = st.cats[0];
+  row.hazardClass=val; row.subType=st.key; row.category=cat.v; row.hCode=cat.h;
+  hzcRenderRows();
+}
+function hzcOnSubTypeChange(id, val){
+  const row=hzcRowsData.find(r=>r.id===id); if(!row) return;
+  const st = getSubTypeDef(row.hazardClass, val); const cat = st.cats[0];
+  row.subType=val; row.category=cat.v; row.hCode=cat.h;
+  hzcRenderRows();
+}
+function hzcOnCategoryChange(id, val){
+  const row=hzcRowsData.find(r=>r.id===id); if(!row) return;
+  const cat = getCatDef(row.hazardClass, row.subType, val);
+  row.category=val; row.hCode = cat ? cat.h : row.hCode;
+  hzcRenderRows();
+}
+function hzcRenderRows(){
+  const tbody = document.getElementById('hzc-rows'); if(!tbody) return;
+  tbody.innerHTML = hzcRowsData.map(row=>{
+    const hc = getHazardDef(row.hazardClass);
+    const st = getSubTypeDef(row.hazardClass, row.subType);
+    const classOpts = HAZARD_DEFS.map(h=>`<option value="${h.key}" ${h.key===row.hazardClass?'selected':''}>${h.zh}</option>`).join('');
+    const subOpts = hc.subTypes.map(s=>`<option value="${s.key}" ${s.key===row.subType?'selected':''}>${s.label}</option>`).join('');
+    const catOpts = st.cats.map(c=>`<option value="${c.v}" ${c.v===row.category?'selected':''}>${c.v}</option>`).join('');
+    let extra = '';
+    if(row.hazardClass==='acute' && row.subType==='inhalation'){
+      extra = `<select style="margin-top:4px" onchange="hzcUpdateRow('${row.id}',{inhForm:this.value})"><option value="gas" ${row.inhForm==='gas'?'selected':''}>氣體(ppmV)</option><option value="vapor" ${row.inhForm==='vapor'?'selected':''}>蒸氣(mg/l)</option><option value="dust" ${row.inhForm==='dust'?'selected':''}>粉塵/霧滴(mg/l)</option></select>`;
+    }
+    let actualCell = '—';
+    if(row.hazardClass==='acute'){
+      actualCell = `<input type="text" class="hz-mini-input" placeholder="實測ATE" value="${row.actualATE!=null?row.actualATE:''}" onchange="hzcUpdateRow('${row.id}',{actualATE:this.value===''?null:this.value})" />`;
+    } else if(row.hazardClass==='aquatic' && row.subType==='acuteAq'){
+      actualCell = `<input type="text" class="hz-mini-input" placeholder="實測LC50" value="${row.actualLC50!=null?row.actualLC50:''}" onchange="hzcUpdateRow('${row.id}',{actualLC50:this.value===''?null:this.value})" />`;
+    } else if(row.hazardClass==='aquatic' && row.subType==='chronicAq'){
+      actualCell = `<input type="text" class="hz-mini-input" placeholder="實測NOEC" value="${row.actualNOEC!=null?row.actualNOEC:''}" onchange="hzcUpdateRow('${row.id}',{actualNOEC:this.value===''?null:this.value})" /><label style="display:inline-flex;align-items:center;gap:4px;margin-top:4px;text-transform:none;font-weight:400"><input type="checkbox" ${row.rapid?'checked':''} onchange="hzcUpdateRow('${row.id}',{rapid:this.checked})" style="width:13px;height:13px" />快速降解</label>`;
+    } else if(row.hazardClass==='skineye'){
+      actualCell = `<input type="text" class="hz-mini-input" placeholder="pH值" value="${row.phValue!=null?row.phValue:''}" onchange="hzcUpdateRow('${row.id}',{phValue:this.value===''?null:this.value})" />`;
+    }
+    return `<tr>
+      <td><select onchange="hzcOnHazardClassChange('${row.id}',this.value)">${classOpts}</select></td>
+      <td><select onchange="hzcOnSubTypeChange('${row.id}',this.value)">${subOpts}</select>${extra}</td>
+      <td><select onchange="hzcOnCategoryChange('${row.id}',this.value)">${catOpts}</select></td>
+      <td><input type="text" value="${row.hCode||''}" onchange="hzcUpdateRow('${row.id}',{hCode:this.value})" /></td>
+      <td>${actualCell}</td>
+      <td><input type="text" value="${(row.remarks||'').replace(/"/g,'&quot;')}" placeholder="備註" onchange="hzcUpdateRow('${row.id}',{remarks:this.value})" /></td>
+      <td><button class="btn-del-row" onclick="hzcRemoveRow('${row.id}')">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+async function hzcSubmit(){
+  if(!hzcCurrentCas) return toast('請先選擇或輸入 CAS No.',true);
+  if(!validateCAS(hzcCurrentCas)) return toast('CAS No. 格式錯誤，例如：64-17-5',true);
+  if(!hzcRowsData.length) return toast('請至少新增一列危害分類',true);
+  await ensureSubstanceRegistered(hzcCurrentCas);
+  const rows = hzcRowsData.map(r=>({
+    cas_no:hzcCurrentCas, hazard_class:r.hazardClass, sub_type:r.subType, category:r.category, h_code:r.hCode||'',
+    inhalation_form: r.hazardClass==='acute'&&r.subType==='inhalation' ? r.inhForm : null,
+    ph_value: r.phValue!=null && r.phValue!=='' ? Number(r.phValue) : null,
+    actual_ate: r.actualATE!=null && r.actualATE!=='' ? Number(r.actualATE) : null,
+    actual_lc50: r.actualLC50!=null && r.actualLC50!=='' ? Number(r.actualLC50) : null,
+    actual_noec: r.actualNOEC!=null && r.actualNOEC!=='' ? Number(r.actualNOEC) : null,
+    rapidly_degradable: !!r.rapid,
+    remarks: r.remarks||''
+  }));
+  const{error:eDel}=await sb.from('substance_hazard_db').delete().eq('cas_no',hzcCurrentCas);
+  if(eDel) return toast('儲存失敗：'+eDel.message,true);
+  const{error:eIns}=await sb.from('substance_hazard_db').insert(rows);
+  if(eIns) return toast('儲存失敗：'+eIns.message,true);
+  toast('危害分類已儲存！');
+}
+
+/* ---------- 混合物危害計算 ---------- */
+async function hzLoadProductSelect(){
+  const{data}=await sb.from('product_db').select('id,product_name').order('product_name');
+  const sel=document.getElementById('hzcalc-product-select');
+  sel.innerHTML = '<option value="">請選擇產品...</option>' + (data||[]).map(p=>`<option value="${p.id}">${p.product_name}</option>`).join('');
+}
+let hzCurrentProductId=null;
+async function hzLoadProduct(){
+  const pid = document.getElementById('hzcalc-product-select').value;
+  document.getElementById('hzcalc-result').style.display='none';
+  document.getElementById('hzcalc-warnings').innerHTML='';
+  if(!pid){ hzCurrentProductId=null; return; }
+  hzCurrentProductId=pid;
+  const{data:prod}=await sb.from('product_db').select('*').eq('id',pid).single();
+  document.getElementById('hzcalc-viscosity').value = (prod && prod.viscosity_40c!=null) ? prod.viscosity_40c : '';
+  await hzRunCalculation();
+}
+async function hzSaveViscosity(){
+  if(!hzCurrentProductId) return toast('請先選擇產品',true);
+  const v = document.getElementById('hzcalc-viscosity').value;
+  const{error}=await sb.from('product_db').update({viscosity_40c: v===''?null:Number(v)}).eq('id',hzCurrentProductId);
+  if(error) return toast('儲存失敗：'+error.message,true);
+  toast('動黏度已儲存');
+  await hzRunCalculation();
+}
+async function hzRunCalculation(){
+  if(!hzCurrentProductId) return;
+  const{data:comp}=await sb.from('product_composition').select('cas_no,description,percentage').eq('product_id',hzCurrentProductId);
+  const rows = comp||[];
+  const casList = [...new Set(rows.filter(r=>r.cas_no).map(r=>r.cas_no))];
+  const{data:names}=await sb.from('substance_db').select('cas_no,item_name').in('cas_no',casList.length?casList:['__none__']);
+  const nameMap={}; (names||[]).forEach(n=>nameMap[n.cas_no]=n.item_name);
+  const{data:hazData}=await sb.from('substance_hazard_db').select('*').in('cas_no',casList.length?casList:['__none__']);
+  const hazMap={}; (hazData||[]).forEach(h=>{ (hazMap[h.cas_no]=hazMap[h.cas_no]||[]).push({ hazardClass:h.hazard_class, subType:h.sub_type, category:h.category, hCode:h.h_code, inhForm:h.inhalation_form, phValue:h.ph_value, actualATE:h.actual_ate, actualLC50:h.actual_lc50, actualNOEC:h.actual_noec, rapid:h.rapidly_degradable }); });
+
+  const warnings=[];
+  const ingredients = rows.map(r=>{
+    const key = r.cas_no || ('desc::'+r.description);
+    const pct = r.percentage!=null ? Number(r.percentage) : null;
+    if(pct==null) warnings.push(`「${r.cas_no||r.description}」未填比例，計算時以 0% 處理`);
+    const hazards = r.cas_no ? (hazMap[r.cas_no]||[]) : [];
+    if(r.cas_no && !hazards.length) warnings.push(`CAS ${r.cas_no}（${nameMap[r.cas_no]||'尚未建檔名稱'}）尚無危害分類資料，計算時將視為無危害貢獻`);
+    if(!r.cas_no) warnings.push(`成分「${r.description}」無 CAS No.，目前危害分類建檔僅支援 CAS No.，此成分不會被納入計算`);
+    return { cas:r.cas_no||null, description:r.description||null, name:r.cas_no?(nameMap[r.cas_no]||r.cas_no):r.description, pct:pct||0, hazards };
+  });
+
+  const viscosity = document.getElementById('hzcalc-viscosity').value;
+  const settings = hzSettingsCache;
+  const { results, aspirationInfo } = computeMixture(ingredients, { settings, viscosity });
+
+  document.getElementById('hzcalc-warnings').innerHTML = warnings.length ? `<div class="hz-warn">⚠️ ${warnings.join('<br/>⚠️ ')}</div>` : '';
+
+  hzRenderResults(results, aspirationInfo);
+  hzRenderSDS(ingredients);
+  document.getElementById('hzcalc-result').style.display='block';
+}
+function hzRenderResults(results, aspirationInfo){
+  const body = document.getElementById('hzcalc-result-body');
+  if(!results.length){ body.innerHTML = '<div class="empty-state"><p>依目前成分與比例，未觸發任何危害分級。</p></div>'; return; }
+  const byClass = {};
+  results.forEach(r=>{ (byClass[r.hazardClass]=byClass[r.hazardClass]||[]).push(r); });
+  let html = '';
+  HAZARD_DEFS.forEach(hc=>{
+    const list = byClass[hc.key]; if(!list) return;
+    html += `<div class="hz-class-block"><div class="hz-class-title">${hc.zh}｜${hc.label}</div><div class="hz-chip-row">`;
+    list.forEach(r=>{
+      const color = hzColorFor(r.hazardClass, r.subType, r.category);
+      const st = getSubTypeDef(r.hazardClass, r.subType);
+      html += `<div class="hz-chip" style="background:${color}"><span>${st?st.label:r.subType} Cat.${r.category}</span><small>${r.hCode||''}</small></div>`;
+    });
+    html += `</div></div>`;
+  });
+  if(aspirationInfo && !aspirationInfo.viscKnown && (aspirationInfo.sum1>=10 || aspirationInfo.sum2>=10)){
+    html += `<div class="hz-warn">⚠️ 吸入性危害成分濃度加總已達門檻（Cat1總和 ${aspirationInfo.sum1.toFixed(2)}%／Cat2總和 ${aspirationInfo.sum2.toFixed(2)}%），但尚未提供混合物動黏度，無法完整判定，請於上方輸入動黏度。</div>`;
+  }
+  document.getElementById('hzcalc-result-body').innerHTML = html;
+}
+function hzRenderSDS(ingredients){
+  const body = document.getElementById('hzcalc-sds-body');
+  const list = ingredients.filter(ing=>ing.cas && shouldDisplayInSDS(ing));
+  if(!list.length){ body.innerHTML = '<div class="empty-state"><p>依 Table 1.5.1 判定，目前無成分需列於 SDS。</p></div>'; return; }
+  body.innerHTML = list.map(ing=>{
+    const chips = (ing.hazards||[]).map(hz=>{
+      const color = hzColorFor(hz.hazardClass, hz.subType, hz.category);
+      const st = getSubTypeDef(hz.hazardClass, hz.subType);
+      return `<div class="hz-chip" style="background:${color}"><span>${st?st.label:hz.subType} Cat.${hz.category}</span><small>${hz.hCode||''}</small></div>`;
+    }).join('');
+    return `<div class="hz-sds-card"><div class="hz-sds-head"><span class="hz-sds-name">${ing.name} <span class="cas-badge">${ing.cas}</span></span><span class="hz-sds-pct">${ing.pct}%</span></div><div class="hz-chip-row">${chips||'<span style="color:var(--text-muted);font-size:0.8rem">無已知分類資料</span>'}</div></div>`;
+  }).join('');
+}
+
+/* ---------- 計算設定 ---------- */
+async function hzLoadSettings(){
+  const{data}=await sb.from('hazard_calc_settings').select('*').eq('id',1).single();
+  hzSettingsCache.stotCat3FromCat1IngredientEnabled = !!(data && data.stot_cat3_from_cat1_enabled);
+  document.getElementById('hz-setting-stot3').checked = hzSettingsCache.stotCat3FromCat1IngredientEnabled;
+}
+async function hzSaveSettings(){
+  const val = document.getElementById('hz-setting-stot3').checked;
+  hzSettingsCache.stotCat3FromCat1IngredientEnabled = val;
+  const{error}=await sb.from('hazard_calc_settings').upsert({id:1, stot_cat3_from_cat1_enabled:val});
+  if(error) return toast('設定儲存失敗：'+error.message,true);
+  toast('設定已更新');
+  if(hzCurrentProductId) await hzRunCalculation();
+}
 </script>
+
 </body>
 </html>
