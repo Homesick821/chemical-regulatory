@@ -185,7 +185,9 @@
     .hz-warn { background:#FFF6E8; border:1px solid #F0DBA8; color:#8A6B1E; border-radius:10px; padding:10px 14px; font-size:0.8rem; margin-bottom:12px; line-height:1.6; }
     .hz-toggle-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
     .hz-toggle-row input[type=checkbox] { width:16px; height:16px; }
-    .hz-mini-input { width:88px !important; display:inline-block; }
+    .hz-mini-input { width:72px !important; display:inline-block; }
+    .hz-scl-input { width:44px !important; }
+    .hz-subtype-table-wrap { overflow-x:auto; }
   </style>
 </head>
 <body>
@@ -472,10 +474,12 @@
       <div class="card" id="hzc-form-card" style="display:none">
         <h2>危害分類項目（<span id="hzc-current-name"></span>）</h2>
         <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:12px;line-height:1.6">每一列代表一個「危害類別＋子項目」的分類結果。急毒性與水環境危害可填「實測值」，有填時計算優先採用實測值，未填才用 Category 查表估算值。若該物質對某危害項目訂有特殊濃度限制（Specific Concentration Limits, SCL，例如 ECHA C&L 頁面顯示的門檻），請勾選「套用 SCL」並填入該項目專屬的濃度區間，計算時會以此區間直接觸發對應分級，取代一般加成式門檻。</p>
-        <table class="hz-subtype-table">
-          <thead><tr><th style="width:13%">危害類別</th><th style="width:11%">子項目</th><th style="width:11%">型態/單位</th><th style="width:8%">Category</th><th style="width:9%">H-code</th><th style="width:12%">實測值（選填）</th><th style="width:16%">特殊濃度限制 SCL（選填）</th><th style="width:14%">備註</th><th></th></tr></thead>
+        <div class="hz-subtype-table-wrap">
+        <table class="hz-subtype-table" style="table-layout:fixed;min-width:960px">
+          <thead><tr><th style="width:12%">危害類別</th><th style="width:10%">子項目</th><th style="width:10%">型態/單位</th><th style="width:8%">Category</th><th style="width:8%">H-code</th><th style="width:10%">實測值（選填）</th><th style="width:19%">特殊濃度限制 SCL（選填）</th><th style="width:17%">備註</th><th style="width:4%"></th></tr></thead>
           <tbody id="hzc-rows"></tbody>
         </table>
+        </div>
         <button class="btn-add-row" onclick="hzcAddRow()">＋ 新增分類列</button>
         <div style="margin-top:16px"><button class="btn-primary" onclick="hzcSubmit()">儲存危害分類</button></div>
       </div>
@@ -1688,11 +1692,11 @@ function hzcRenderRows(){
     }
 
     const sclCell = !row.hazardClass ? '<span style="color:var(--text-muted);font-size:0.8rem">—</span>' : `
-      <label style="display:inline-flex;align-items:center;gap:4px;text-transform:none;font-weight:400;font-size:0.8rem"><input type="checkbox" ${row.sclEnabled?'checked':''} onchange="hzcUpdateRow('${row.id}',{sclEnabled:this.checked})" style="width:13px;height:13px" />套用 SCL</label>
-      <div style="display:flex;gap:4px;align-items:center;margin-top:4px">
-        <input type="text" class="hz-mini-input" style="width:56px !important" placeholder="下限%" value="${row.sclMin!=null?row.sclMin:''}" onchange="hzcUpdateRow('${row.id}',{sclMin:this.value===''?null:this.value})" />
+      <div style="display:flex;gap:4px;align-items:center;white-space:nowrap">
+        <input type="text" class="hz-mini-input hz-scl-input" placeholder="下限" value="${row.sclMin!=null?row.sclMin:''}" onchange="hzcUpdateRow('${row.id}',{sclMin:this.value===''?null:this.value})" />
         <span style="font-size:0.75rem;color:var(--text-muted)">≤C&lt;</span>
-        <input type="text" class="hz-mini-input" style="width:56px !important" placeholder="上限%(空=無上限)" value="${row.sclMax!=null?row.sclMax:''}" onchange="hzcUpdateRow('${row.id}',{sclMax:this.value===''?null:this.value})" />
+        <input type="text" class="hz-mini-input hz-scl-input" placeholder="上限" value="${row.sclMax!=null?row.sclMax:''}" onchange="hzcUpdateRow('${row.id}',{sclMax:this.value===''?null:this.value})" />
+        <label style="display:inline-flex;align-items:center;gap:3px;text-transform:none;font-weight:400;font-size:0.75rem;color:var(--text-secondary)"><input type="checkbox" ${row.sclEnabled?'checked':''} onchange="hzcUpdateRow('${row.id}',{sclEnabled:this.checked})" style="width:13px;height:13px" />SCL</label>
       </div>`;
 
     return `<tr>
