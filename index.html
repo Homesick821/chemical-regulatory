@@ -1552,6 +1552,26 @@ function inSclRange(pct,min,max){
   const hi = max==null ? Infinity : Number(max);
   return pct>=lo && pct<hi;
 }
+/* 找出「某成分在某危害子項目下，所有已建檔分類列都是 SCL，但此次濃度未落入任何一個 SCL 區間」的情況，
+   這代表該成分在這個濃度下對此危害項目沒有可用的分類資料（並非計算錯誤，而是建檔尚未涵蓋此濃度區間）。 */
+function collectSCLGapWarnings(ingredients){
+  const gaps=[];
+  ingredients.forEach(ing=>{
+    if(!ing.cas) return;
+    const groups={};
+    (ing.hazards||[]).forEach(hz=>{ const key=hz.hazardClass+'|'+hz.subType; (groups[key]=groups[key]||[]).push(hz); });
+    Object.entries(groups).forEach(([key,list])=>{
+      if(!list.every(hz=>hz.sclEnabled)) return;
+      const pct = Number(ing.pct)||0;
+      const anyHit = list.some(hz=>inSclRange(pct,hz.sclMin,hz.sclMax));
+      if(anyHit) return;
+      const [hazardClass,subType]=key.split('|');
+      const hc=getHazardDef(hazardClass); const st=hc&&getSubTypeDef(hazardClass,subType);
+      gaps.push({ cas:ing.cas, pct, hazardClass, subType, label:(hc?hc.zh:hazardClass)+'／'+(st?st.label:subType) });
+    });
+  });
+  return gaps;
+}
 function applySCLOverrides(ingredients, results){
   const out = results.map(r=>({...r, contributing:[...(r.contributing||[])]}));
   ingredients.forEach(ing=>{
@@ -1789,6 +1809,11 @@ async function hzRunCalculation(){
   const viscosity = document.getElementById('hzcalc-viscosity').value;
   const settings = hzSettingsCache;
   const { results, aspirationInfo } = computeMixture(ingredients, { settings, viscosity });
+
+  collectSCLGapWarnings(ingredients).forEach(g=>{
+    const name = nameMap[g.cas] || g.cas;
+    warnings.push(`CAS ${g.cas}（${name}）在「${g.label}」目前僅建有特殊濃度限制（SCL）分類，此次濃度 ${g.pct}% 未落入任何已設定的 SCL 區間，本次計算對此危害項目不計入貢獻。若此物質在此濃度仍應有較低嚴重度的分級，請至「物質危害分類建檔」比照原始資料（如 ECHA 頁面）新增涵蓋此濃度區間的分類列。`);
+  });
 
   document.getElementById('hzcalc-warnings').innerHTML = warnings.length ? `<div class="hz-warn">⚠️ ${warnings.join('<br/>⚠️ ')}</div>` : '';
 
