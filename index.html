@@ -117,10 +117,11 @@
 
     .heatmap-wrapper { overflow-x: auto; }
     .heatmap-table { border-collapse: separate; border-spacing: 4px; }
-    .heatmap-table th { font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; padding: 5px 9px; white-space: nowrap; text-align: center; font-family: 'Inter', sans-serif; }
-    .heatmap-table th.row-header { text-align: left; }
+    .heatmap-table th { font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; padding: 5px 9px; white-space: normal; word-break: break-word; width: 105px; max-width: 105px; text-align: center; font-family: 'Inter', sans-serif; }
+    .heatmap-table th.row-header { text-align: left; width: auto; max-width: none; white-space: nowrap; }
     .heatmap-table td.row-label { font-size: 0.8rem; font-weight: 500; color: var(--text-primary); padding: 5px 11px; white-space: nowrap; font-family: 'Noto Serif TC', serif; }
-    .hm-cell { width: 105px; min-width: 85px; height: 46px; border-radius: 8px; cursor: default; transition: transform 0.15s, box-shadow 0.15s; }
+    .heatmap-table td:not(.row-label) { width: 105px; }
+    .hm-cell { width: 100%; min-width: 85px; box-sizing: border-box; height: 46px; border-radius: 8px; cursor: default; transition: transform 0.15s, box-shadow 0.15s; }
     .hm-cell:hover { transform: scale(1.06); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
     .hm-cell .cell-text { font-size: 0.66rem; font-weight: 600; text-align: center; padding: 4px; line-height: 1.2; color: #fff; font-family: 'Noto Serif TC', serif; }
     .hm-cell.na .cell-text { color: var(--text-muted); }
@@ -257,7 +258,7 @@
     </div>
     <div class="card">
       <h2>法規合規狀態</h2>
-      <table class="reg-table"><thead><tr><th>法規名稱</th><th>合規狀態</th><th>備註</th><th></th></tr></thead><tbody id="reg-rows-add"></tbody></table>
+      <table class="reg-table"><thead><tr><th>國家</th><th>法規名稱</th><th>合規狀態</th><th>備註</th><th></th></tr></thead><tbody id="reg-rows-add"></tbody></table>
       <button class="btn-add-row" onclick="addRegRow('add')">＋ 新增法規列</button>
     </div>
     <button class="btn-primary" onclick="submitAdd()">儲存至資料庫</button>
@@ -278,6 +279,12 @@
           <input class="multiselect-search" id="ms-search" placeholder="搜尋..." oninput="filterOptions()" onfocus="openDropdown()" />
         </div>
         <div class="multiselect-dropdown" id="ms-dropdown"></div>
+      </div>
+      <div id="scan-filter-wrap" style="display:none;margin-top:14px">
+        <div class="form-grid">
+          <div><label>篩選國家</label><select id="scan-filter-country" onchange="renderScanFilters()"><option value="">全部國家</option></select></div>
+          <div><label>篩選法規</label><select id="scan-filter-reg"><option value="">全部法規</option></select></div>
+        </div>
       </div>
       <br/>
       <button class="btn-primary" onclick="runScan()">執行合規掃描</button>
@@ -534,7 +541,7 @@
     </div>
     <div class="form-full" style="margin-bottom:20px"><label>備註</label><textarea id="edit-remarks"></textarea></div>
     <h2 style="font-size:0.95rem;margin-bottom:14px">法規合規狀態</h2>
-    <table class="reg-table"><thead><tr><th>法規名稱</th><th>合規狀態</th><th>備註</th><th></th></tr></thead><tbody id="reg-rows-edit"></tbody></table>
+    <table class="reg-table"><thead><tr><th>國家</th><th>法規名稱</th><th>合規狀態</th><th>備註</th><th></th></tr></thead><tbody id="reg-rows-edit"></tbody></table>
     <button class="btn-add-row" onclick="addRegRow('edit')" style="margin-bottom:6px">＋ 新增法規列</button>
     <div class="modal-footer">
       <button class="btn-danger" onclick="deleteSubstance()">刪除物質</button>
@@ -563,6 +570,8 @@ const STATUS_OPTIONS = ['Compliant','Conditionally Compliant','Restricted','Non-
 const STATUS_CLASS = {'Compliant':'hm-compliant','Conditionally Compliant':'hm-conditional','Restricted':'hm-restricted','Non-Compliant':'hm-noncompliant','Exempt':'hm-exempt','Under Review':'hm-review','N/A':'hm-na','—':'hm-na'};
 const STATUS_LABEL = {'Compliant':'合規','Conditionally Compliant':'有條件合規','Restricted':'受限','Non-Compliant':'不合規','Exempt':'豁免','Under Review':'審查中','N/A':'N/A'};
 const LEGEND_ITEMS = [{cls:'hm-compliant',label:'合規 Compliant'},{cls:'hm-conditional',label:'有條件合規'},{cls:'hm-restricted',label:'受限 Restricted'},{cls:'hm-noncompliant',label:'不合規 Non-Compliant'},{cls:'hm-exempt',label:'豁免 Exempt'},{cls:'hm-review',label:'審查中'},{cls:'hm-na',label:'無資料'}];
+let COUNTRY_LIST = [];
+let COUNTRY_LABEL = {};
 
 function validateCAS(cas){return /^\d{2,7}-\d{2}-\d$/.test(cas.trim());}
 function toast(msg,isError=false){const t=document.getElementById('toast');t.textContent=msg;t.className=isError?'error show':'show';setTimeout(()=>{t.className=isError?'error':'';},3000);}
@@ -571,8 +580,9 @@ function showHome(){document.getElementById('page-home').style.display='block';d
 function showInner(name){document.getElementById('page-home').style.display='none';document.querySelectorAll('.inner-page').forEach(p=>p.classList.remove('active'));document.getElementById('inner-'+name).classList.add('active');if(name==='scan')loadSubstancesForScan();if(name==='browse')loadBrowse();if(name==='inventory')initInventoryPage();if(name==='hazcalc')initHazCalcPage();}
 
 function statusSelect(val=''){return `<select style="width:100%">${STATUS_OPTIONS.map(s=>`<option value="${s}" ${s===val?'selected':''}>${s}</option>`).join('')}</select>`;}
-function addRegRow(target,data={}){const tbody=document.getElementById('reg-rows-'+target);const tr=document.createElement('tr');tr.innerHTML=`<td><input type="text" placeholder="例如：REACH" value="${data.regulation_name||''}" /></td><td>${statusSelect(data.status||'')}</td><td><input type="text" placeholder="備註（選填）" value="${data.remarks||''}" /></td><td><button class="btn-del-row" onclick="this.closest('tr').remove()">✕</button></td>`;tbody.appendChild(tr);}
-function getRegRows(target){const rows=[];document.querySelectorAll(`#reg-rows-${target} tr`).forEach(tr=>{const inputs=tr.querySelectorAll('input[type="text"]');const sel=tr.querySelector('select');const name=inputs[0]?.value.trim();const status=sel?.value;const remarks=inputs[1]?.value.trim();if(name&&status)rows.push({regulation_name:name,status,remarks:remarks||''});});return rows;}
+function regCountrySelect(val=''){return `<select style="width:100%"><option value="">未分類</option>${COUNTRY_LIST.map(c=>`<option value="${c}" ${c===val?'selected':''}>${COUNTRY_LABEL[c]}</option>`).join('')}</select>`;}
+function addRegRow(target,data={}){const tbody=document.getElementById('reg-rows-'+target);const tr=document.createElement('tr');tr.innerHTML=`<td>${regCountrySelect(data.country_code||'')}</td><td><input type="text" placeholder="例如：REACH" value="${data.regulation_name||''}" /></td><td>${statusSelect(data.status||'')}</td><td><input type="text" placeholder="備註（選填）" value="${data.remarks||''}" /></td><td><button class="btn-del-row" onclick="this.closest('tr').remove()">✕</button></td>`;tbody.appendChild(tr);}
+function getRegRows(target){const rows=[];document.querySelectorAll(`#reg-rows-${target} tr`).forEach(tr=>{const inputs=tr.querySelectorAll('input[type="text"]');const sels=tr.querySelectorAll('select');const country=sels[0]?.value||null;const name=inputs[0]?.value.trim();const status=sels[1]?.value;const remarks=inputs[1]?.value.trim();if(name&&status)rows.push({country_code:country||null,regulation_name:name,status,remarks:remarks||''});});return rows;}
 
 async function submitAdd(){
   const cas=document.getElementById('add-cas').value.trim();
@@ -618,27 +628,59 @@ const scanSearchDebounced=debounce(async(q)=>{
   dd.innerHTML=entries.length?entries.map(([cas,name])=>`<div class="dropdown-item ${selectedCAS.includes(cas)?'selected':''}" onclick="selectSubstance('${cas}','${name.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${cas}</span>${name}</div>`).join(''):'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質</div>';
 },300);
 function filterOptions(){scanSearchDebounced(document.getElementById('ms-search').value);}
-function selectSubstance(cas,name){if(selectedCAS.includes(cas))return;selectedCAS.push(cas);scanNameCache[cas]=name;renderTags();document.getElementById('ms-search').value='';filterOptions();}
-function removeTag(cas){selectedCAS=selectedCAS.filter(c=>c!==cas);renderTags();filterOptions();}
+function selectSubstance(cas,name){if(selectedCAS.includes(cas))return;selectedCAS.push(cas);scanNameCache[cas]=name;renderTags();document.getElementById('ms-search').value='';filterOptions();refreshScanFilters();}
+function removeTag(cas){selectedCAS=selectedCAS.filter(c=>c!==cas);renderTags();filterOptions();refreshScanFilters();}
 function renderTags(){document.getElementById('ms-tags').innerHTML=selectedCAS.map(cas=>`<span class="tag">${scanNameCache[cas]||cas}<span class="tag-remove" onclick="removeTag('${cas}')">✕</span></span>`).join('');}
+
+/* 每個「法規」以 (country_code, regulation_name) 組成唯一 key，同名法規在不同國家視為不同欄位 */
+function regKey(r){return `${r.country_code||''}__${r.regulation_name}`;}
+function regLabel(r){return r.country_code?`${COUNTRY_LABEL[r.country_code]||r.country_code} · ${r.regulation_name}`:r.regulation_name;}
+
+let scanAllRegs=[];
+/* 選完成分後，依目前選到的物質實際擁有的法規，動態產生「篩選國家」「篩選法規」選單，篩選之後才執行熱圖掃描 */
+async function refreshScanFilters(){
+  const wrap=document.getElementById('scan-filter-wrap');
+  if(!selectedCAS.length){wrap.style.display='none';scanAllRegs=[];return;}
+  const{data:regs}=await sb.from('regulatory_db').select('cas_no, country_code, regulation_name, status, remarks').in('cas_no',selectedCAS);
+  scanAllRegs=regs||[];
+  const countrySel=document.getElementById('scan-filter-country');
+  const curCountry=countrySel.value;
+  const countries=[...new Set(scanAllRegs.map(r=>r.country_code||''))];
+  countrySel.innerHTML='<option value="">全部國家</option>'+countries.map(c=>c?`<option value="${c}" ${c===curCountry?'selected':''}>${COUNTRY_LABEL[c]||c}</option>`:`<option value="__uncategorized__" ${curCountry==='__uncategorized__'?'selected':''}>未分類</option>`).join('');
+  renderScanFilters();
+  wrap.style.display=scanAllRegs.length?'block':'none';
+}
+/* 「篩選法規」選單依目前選定的國家動態縮小範圍 */
+function renderScanFilters(){
+  const countryVal=document.getElementById('scan-filter-country').value;
+  const regSel=document.getElementById('scan-filter-reg');
+  const curReg=regSel.value;
+  const scoped=scanAllRegs.filter(r=>!countryVal||(countryVal==='__uncategorized__'?!r.country_code:r.country_code===countryVal));
+  const regNames=[...new Set(scoped.map(r=>r.regulation_name))].sort();
+  regSel.innerHTML='<option value="">全部法規</option>'+regNames.map(n=>`<option value="${n}" ${n===curReg?'selected':''}>${n}</option>`).join('');
+}
 
 let scanData={};
 async function runScan(){
   if(!selectedCAS.length)return toast('請至少選擇一個物質',true);
   const{data:subs}=await sb.from('substance_db').select('cas_no, item_name').in('cas_no',selectedCAS);
-  const{data:regs}=await sb.from('regulatory_db').select('cas_no, regulation_name, status, remarks').in('cas_no',selectedCAS);
-  scanData={subs:subs||[],regs:regs||[]};
-  const regNames=[...new Set((regs||[]).map(r=>r.regulation_name))].sort();
+  const countryVal=document.getElementById('scan-filter-country')?.value||'';
+  const regVal=document.getElementById('scan-filter-reg')?.value||'';
+  const regs=(scanAllRegs.length?scanAllRegs:(await sb.from('regulatory_db').select('cas_no, country_code, regulation_name, status, remarks').in('cas_no',selectedCAS)).data||[])
+    .filter(r=>(!countryVal||(countryVal==='__uncategorized__'?!r.country_code:r.country_code===countryVal))&&(!regVal||r.regulation_name===regVal));
+  scanData={subs:subs||[],regs};
+  const regKeys=[...new Set(regs.map(r=>regKey(r)))].sort();
+  const keyLabel={};regs.forEach(r=>{keyLabel[regKey(r)]=regLabel(r);});
   const subMap={};(subs||[]).forEach(s=>{subMap[s.cas_no]=s.item_name;});
-  const lookup={};(regs||[]).forEach(r=>{if(!lookup[r.cas_no])lookup[r.cas_no]={};lookup[r.cas_no][r.regulation_name]=r.status;});
+  const lookup={};regs.forEach(r=>{if(!lookup[r.cas_no])lookup[r.cas_no]={};lookup[r.cas_no][regKey(r)]=r.status;});
   document.getElementById('heatmap-legend').innerHTML=LEGEND_ITEMS.map(i=>`<div class="legend-item"><div class="legend-dot ${i.cls}"></div>${i.label}</div>`).join('');
-  const thead=`<tr><th class="row-header">物質名稱</th>${regNames.map(r=>`<th>${r}</th>`).join('')}</tr>`;
-  const tbody=selectedCAS.map(cas=>{const cells=regNames.map(reg=>{const status=lookup[cas]?.[reg]||'—';const cls=STATUS_CLASS[status]||'hm-na';const label=STATUS_LABEL[status]||status;return `<td><div class="hm-cell ${cls}"><div class="cell-text">${label}</div></div></td>`;}).join('');return `<tr><td class="row-label">${subMap[cas]||cas}<br/><span style="font-size:0.7rem;color:var(--text-muted)">${cas}</span></td>${cells}</tr>`;}).join('');
+  const thead=`<tr><th class="row-header">物質名稱</th>${regKeys.map(k=>`<th>${keyLabel[k]}</th>`).join('')}</tr>`;
+  const tbody=selectedCAS.map(cas=>{const cells=regKeys.map(k=>{const status=lookup[cas]?.[k]||'—';const cls=STATUS_CLASS[status]||'hm-na';const label=STATUS_LABEL[status]||status;return `<td><div class="hm-cell ${cls}"><div class="cell-text">${label}</div></div></td>`;}).join('');return `<tr><td class="row-label">${subMap[cas]||cas}<br/><span style="font-size:0.7rem;color:var(--text-muted)">${cas}</span></td>${cells}</tr>`;}).join('');
   document.getElementById('heatmap-table').innerHTML=`<thead>${thead}</thead><tbody>${tbody}</tbody>`;
   document.getElementById('scan-result').style.display='block';
   document.getElementById('scan-result').scrollIntoView({behavior:'smooth',block:'start'});
 }
-function downloadCSV(){const{subs,regs}=scanData;const regNames=[...new Set(regs.map(r=>r.regulation_name))].sort();const subMap={};subs.forEach(s=>{subMap[s.cas_no]=s.item_name;});const lookup={};regs.forEach(r=>{if(!lookup[r.cas_no])lookup[r.cas_no]={};lookup[r.cas_no][r.regulation_name]=r.status;});const header=['CAS No.','物質名稱',...regNames].join(',');const rows=selectedCAS.map(cas=>[cas,subMap[cas]||'',...regNames.map(reg=>lookup[cas]?.[reg]||'—')].map(v=>`"${v}"`).join(','));const csv='\uFEFF'+[header,...rows].join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='compliance_report.csv';a.click();}
+function downloadCSV(){const{subs,regs}=scanData;const regKeys=[...new Set(regs.map(r=>regKey(r)))].sort();const keyLabel={};regs.forEach(r=>{keyLabel[regKey(r)]=regLabel(r);});const subMap={};subs.forEach(s=>{subMap[s.cas_no]=s.item_name;});const lookup={};regs.forEach(r=>{if(!lookup[r.cas_no])lookup[r.cas_no]={};lookup[r.cas_no][regKey(r)]=r.status;});const header=['CAS No.','物質名稱',...regKeys.map(k=>keyLabel[k])].join(',');const rows=selectedCAS.map(cas=>[cas,subMap[cas]||'',...regKeys.map(k=>lookup[cas]?.[k]||'—')].map(v=>`"${v}"`).join(','));const csv='\uFEFF'+[header,...rows].join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='compliance_report.csv';a.click();}
 
 const browseFilterOptions=debounce(()=>loadBrowse(document.getElementById('browse-search')?.value||''),300);
 async function loadBrowse(q=''){
@@ -699,11 +741,9 @@ async function deleteSubstance(){
   toast('已刪除');closeModal();loadBrowse();
 }
 
-addRegRow('add');
+(async()=>{await loadCountryList();addRegRow('add');})();
 
 /* ===================== 各國清單狀態插件 ===================== */
-let COUNTRY_LIST = [];
-let COUNTRY_LABEL = {};
 /* 從 country_list_db 動態載入國家清單（取代舊版寫死的陣列），讓使用者可自行新增/刪除國家 */
 async function loadCountryList(){
   const{data,error}=await sb.from('country_list_db').select('*').order('sort_order',{ascending:true,nullsFirst:false}).order('code',{ascending:true});
