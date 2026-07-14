@@ -192,6 +192,7 @@
   </style>
 </head>
 <body>
+<datalist id="reg-country-suggest"></datalist>
 
 <div class="topbar">
   <div class="logo" onclick="showHome()">Chem<span>Reg</span></div>
@@ -441,7 +442,10 @@
     <div class="inv-subpage" id="inv-tab-manage-country">
       <div class="card">
         <h2>管理國家清單</h2>
-        <div id="country-manage-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
+        <table class="reg-table" id="country-manage-table" style="margin-bottom:14px">
+          <thead><tr><th style="text-align:left">國家代碼</th><th style="text-align:left">顯示名稱（清單用）</th><th style="text-align:left">純國家名稱（法規用）</th><th></th></tr></thead>
+          <tbody id="country-manage-list"></tbody>
+        </table>
         <div class="form-grid-2">
           <div><label>國家代碼</label><input type="text" id="new-country-code" placeholder="例如：ANVISA（英數，將自動轉大寫）" /></div>
           <div><label>顯示名稱（清單用，例如：巴西 ANVISA）</label><input type="text" id="new-country-label" placeholder="例如：巴西 ANVISA" /></div>
@@ -584,9 +588,9 @@ function showHome(){document.getElementById('page-home').style.display='block';d
 function showInner(name){document.getElementById('page-home').style.display='none';document.querySelectorAll('.inner-page').forEach(p=>p.classList.remove('active'));document.getElementById('inner-'+name).classList.add('active');if(name==='scan')loadSubstancesForScan();if(name==='browse')loadBrowse();if(name==='inventory')initInventoryPage();if(name==='hazcalc')initHazCalcPage();}
 
 function statusSelect(val=''){return `<select style="width:100%">${STATUS_OPTIONS.map(s=>`<option value="${s}" ${s===val?'selected':''}>${s}</option>`).join('')}</select>`;}
-function regCountrySelect(val=''){return `<select style="width:100%"><option value="">未分類</option>${COUNTRY_LIST.map(c=>`<option value="${c}" ${c===val?'selected':''}>${COUNTRY_NAME[c]}</option>`).join('')}</select>`;}
-function addRegRow(target,data={}){const tbody=document.getElementById('reg-rows-'+target);const tr=document.createElement('tr');tr.innerHTML=`<td>${regCountrySelect(data.country_code||'')}</td><td><input type="text" placeholder="例如：REACH" value="${data.regulation_name||''}" /></td><td>${statusSelect(data.status||'')}</td><td><input type="text" placeholder="備註（選填）" value="${data.remarks||''}" /></td><td><button class="btn-del-row" onclick="this.closest('tr').remove()">✕</button></td>`;tbody.appendChild(tr);}
-function getRegRows(target){const rows=[];document.querySelectorAll(`#reg-rows-${target} tr`).forEach(tr=>{const inputs=tr.querySelectorAll('input[type="text"]');const sels=tr.querySelectorAll('select');const country=sels[0]?.value||null;const name=inputs[0]?.value.trim();const status=sels[1]?.value;const remarks=inputs[1]?.value.trim();if(name&&status)rows.push({country_code:country||null,regulation_name:name,status,remarks:remarks||''});});return rows;}
+function refreshCountryDatalist(){const el=document.getElementById('reg-country-suggest');if(el)el.innerHTML=COUNTRY_LIST.map(c=>`<option value="${COUNTRY_NAME[c]||c}">`).join('');}
+function addRegRow(target,data={}){const tbody=document.getElementById('reg-rows-'+target);const tr=document.createElement('tr');tr.innerHTML=`<td><input type="text" list="reg-country-suggest" placeholder="例如：巴西（可自行輸入）" value="${data.country_code||''}" /></td><td><input type="text" placeholder="例如：REACH" value="${data.regulation_name||''}" /></td><td>${statusSelect(data.status||'')}</td><td><input type="text" placeholder="備註（選填）" value="${data.remarks||''}" /></td><td><button class="btn-del-row" onclick="this.closest('tr').remove()">✕</button></td>`;tbody.appendChild(tr);}
+function getRegRows(target){const rows=[];document.querySelectorAll(`#reg-rows-${target} tr`).forEach(tr=>{const inputs=tr.querySelectorAll('input[type="text"]');const sel=tr.querySelector('select');const country=inputs[0]?.value.trim();const name=inputs[1]?.value.trim();const status=sel?.value;const remarks=inputs[2]?.value.trim();if(name&&status)rows.push({country_code:country||null,regulation_name:name,status,remarks:remarks||''});});return rows;}
 
 async function submitAdd(){
   const cas=document.getElementById('add-cas').value.trim();
@@ -638,7 +642,7 @@ function renderTags(){document.getElementById('ms-tags').innerHTML=selectedCAS.m
 
 /* 每個「法規」以 (country_code, regulation_name) 組成唯一 key，同名法規在不同國家視為不同欄位 */
 function regKey(r){return `${r.country_code||''}__${r.regulation_name}`;}
-function regLabel(r){return r.country_code?`${COUNTRY_NAME[r.country_code]||r.country_code} · ${r.regulation_name}`:r.regulation_name;}
+function regLabel(r){return r.country_code?`${r.country_code} · ${r.regulation_name}`:r.regulation_name;}
 
 let scanAllRegs=[];
 /* 選完成分後，依目前選到的物質實際擁有的法規，動態產生「篩選國家」「篩選法規」選單，篩選之後才執行熱圖掃描 */
@@ -650,7 +654,7 @@ async function refreshScanFilters(){
   const countrySel=document.getElementById('scan-filter-country');
   const curCountry=countrySel.value;
   const countries=[...new Set(scanAllRegs.map(r=>r.country_code||''))];
-  countrySel.innerHTML='<option value="">全部國家</option>'+countries.map(c=>c?`<option value="${c}" ${c===curCountry?'selected':''}>${COUNTRY_NAME[c]||c}</option>`:`<option value="__uncategorized__" ${curCountry==='__uncategorized__'?'selected':''}>未分類</option>`).join('');
+  countrySel.innerHTML='<option value="">全部國家</option>'+countries.map(c=>c?`<option value="${c}" ${c===curCountry?'selected':''}>${c}</option>`:`<option value="__uncategorized__" ${curCountry==='__uncategorized__'?'selected':''}>未分類</option>`).join('');
   renderScanFilters();
   wrap.style.display=scanAllRegs.length?'block':'none';
 }
@@ -755,22 +759,44 @@ async function loadCountryList(){
   COUNTRY_LIST=(data||[]).map(r=>r.code);
   COUNTRY_LABEL={};(data||[]).forEach(r=>{COUNTRY_LABEL[r.code]=r.label;});
   COUNTRY_NAME={};(data||[]).forEach(r=>{COUNTRY_NAME[r.code]=r.country_name||r.label;});
+  refreshCountryDatalist();
   return data||[];
 }
+let countryEditingCode=null;
 function renderCountryManageList(rows){
   const el=document.getElementById('country-manage-list');
   if(!el)return;
-  el.innerHTML=(rows||[]).map(r=>`<span class="tag" style="align-items:center;gap:6px">${r.label}<input type="text" value="${r.country_name||''}" placeholder="純國家名稱" style="width:90px;padding:2px 6px;font-size:0.78rem;border-radius:6px" id="cn-${r.code}" /><span class="tag-remove" title="儲存純國家名稱" onclick="updateCountryName('${r.code.replace(/'/g,"\\'")}')" style="color:var(--forest)">✓</span><span class="tag-remove" onclick="deleteCountry('${r.code.replace(/'/g,"\\'")}')">✕</span></span>`).join('')
-    || '<span style="color:var(--text-muted);font-size:0.82rem">尚無國家，請於下方新增</span>';
+  if(!rows||!rows.length){el.innerHTML='<tr><td colspan="4" style="color:var(--text-muted);font-size:0.82rem">尚無國家，請於下方新增</td></tr>';return;}
+  el.innerHTML=rows.map(r=>{
+    const editing=countryEditingCode===r.code;
+    const safeCode=r.code.replace(/'/g,"\\'");
+    if(editing){
+      return `<tr>
+        <td style="font-family:'Inter',sans-serif;color:var(--text-muted)">${r.code}</td>
+        <td><input type="text" id="edit-label-${r.code}" value="${r.label}" /></td>
+        <td><input type="text" id="edit-name-${r.code}" value="${r.country_name||''}" placeholder="純國家名稱" /></td>
+        <td style="white-space:nowrap"><button class="btn-secondary" onclick="saveCountryEdit('${safeCode}')">儲存</button> <button class="btn-secondary" onclick="cancelCountryEdit()">取消</button></td>
+      </tr>`;
+    }
+    return `<tr>
+      <td style="font-family:'Inter',sans-serif;color:var(--text-muted)">${r.code}</td>
+      <td>${r.label}</td>
+      <td>${r.country_name?r.country_name:'<span style="color:var(--text-muted)">（未填）</span>'}</td>
+      <td style="white-space:nowrap"><button class="btn-secondary" onclick="startCountryEdit('${safeCode}')">編輯</button> <button class="btn-del-row" onclick="deleteCountry('${safeCode}')">✕</button></td>
+    </tr>`;
+  }).join('');
 }
-async function updateCountryName(code){
-  const input=document.getElementById('cn-'+code);
-  const name=input?.value.trim();
-  if(!name)return toast('請輸入純國家名稱',true);
-  const{error}=await sb.from('country_list_db').update({country_name:name}).eq('code',code);
+function startCountryEdit(code){countryEditingCode=code;refreshCountryManageUI();}
+function cancelCountryEdit(){countryEditingCode=null;refreshCountryManageUI();}
+async function saveCountryEdit(code){
+  const label=document.getElementById('edit-label-'+code)?.value.trim();
+  const name=document.getElementById('edit-name-'+code)?.value.trim();
+  if(!label)return toast('顯示名稱不可為空',true);
+  const{error}=await sb.from('country_list_db').update({label,country_name:name||label}).eq('code',code);
   if(error)return toast('更新失敗：'+error.message,true);
+  countryEditingCode=null;
   await loadCountryList();refreshImpCountrySelect();await refreshCountryManageUI();
-  toast('已更新純國家名稱！');
+  toast('已更新！');
 }
 async function refreshCountryManageUI(){
   const{data}=await sb.from('country_list_db').select('*').order('sort_order',{ascending:true,nullsFirst:false}).order('code',{ascending:true});
