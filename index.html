@@ -444,7 +444,10 @@
         <div id="country-manage-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
         <div class="form-grid-2">
           <div><label>國家代碼</label><input type="text" id="new-country-code" placeholder="例如：ANVISA（英數，將自動轉大寫）" /></div>
-          <div><label>顯示名稱</label><input type="text" id="new-country-label" placeholder="例如：巴西 ANVISA" /></div>
+          <div><label>顯示名稱（清單用，例如：巴西 ANVISA）</label><input type="text" id="new-country-label" placeholder="例如：巴西 ANVISA" /></div>
+        </div>
+        <div class="form-grid-2" style="margin-top:8px">
+          <div><label>純國家名稱（法規/合規掃描用，例如：巴西）</label><input type="text" id="new-country-name" placeholder="例如：巴西" /></div>
         </div>
         <button class="btn-secondary" onclick="addCountry()" style="margin-top:10px">＋ 新增國家</button>
       </div>
@@ -572,6 +575,7 @@ const STATUS_LABEL = {'Compliant':'合規','Conditionally Compliant':'有條件�
 const LEGEND_ITEMS = [{cls:'hm-compliant',label:'合規 Compliant'},{cls:'hm-conditional',label:'有條件合規'},{cls:'hm-restricted',label:'受限 Restricted'},{cls:'hm-noncompliant',label:'不合規 Non-Compliant'},{cls:'hm-exempt',label:'豁免 Exempt'},{cls:'hm-review',label:'審查中'},{cls:'hm-na',label:'無資料'}];
 let COUNTRY_LIST = [];
 let COUNTRY_LABEL = {};
+let COUNTRY_NAME = {};
 
 function validateCAS(cas){return /^\d{2,7}-\d{2}-\d$/.test(cas.trim());}
 function toast(msg,isError=false){const t=document.getElementById('toast');t.textContent=msg;t.className=isError?'error show':'show';setTimeout(()=>{t.className=isError?'error':'';},3000);}
@@ -580,7 +584,7 @@ function showHome(){document.getElementById('page-home').style.display='block';d
 function showInner(name){document.getElementById('page-home').style.display='none';document.querySelectorAll('.inner-page').forEach(p=>p.classList.remove('active'));document.getElementById('inner-'+name).classList.add('active');if(name==='scan')loadSubstancesForScan();if(name==='browse')loadBrowse();if(name==='inventory')initInventoryPage();if(name==='hazcalc')initHazCalcPage();}
 
 function statusSelect(val=''){return `<select style="width:100%">${STATUS_OPTIONS.map(s=>`<option value="${s}" ${s===val?'selected':''}>${s}</option>`).join('')}</select>`;}
-function regCountrySelect(val=''){return `<select style="width:100%"><option value="">未分類</option>${COUNTRY_LIST.map(c=>`<option value="${c}" ${c===val?'selected':''}>${COUNTRY_LABEL[c]}</option>`).join('')}</select>`;}
+function regCountrySelect(val=''){return `<select style="width:100%"><option value="">未分類</option>${COUNTRY_LIST.map(c=>`<option value="${c}" ${c===val?'selected':''}>${COUNTRY_NAME[c]}</option>`).join('')}</select>`;}
 function addRegRow(target,data={}){const tbody=document.getElementById('reg-rows-'+target);const tr=document.createElement('tr');tr.innerHTML=`<td>${regCountrySelect(data.country_code||'')}</td><td><input type="text" placeholder="例如：REACH" value="${data.regulation_name||''}" /></td><td>${statusSelect(data.status||'')}</td><td><input type="text" placeholder="備註（選填）" value="${data.remarks||''}" /></td><td><button class="btn-del-row" onclick="this.closest('tr').remove()">✕</button></td>`;tbody.appendChild(tr);}
 function getRegRows(target){const rows=[];document.querySelectorAll(`#reg-rows-${target} tr`).forEach(tr=>{const inputs=tr.querySelectorAll('input[type="text"]');const sels=tr.querySelectorAll('select');const country=sels[0]?.value||null;const name=inputs[0]?.value.trim();const status=sels[1]?.value;const remarks=inputs[1]?.value.trim();if(name&&status)rows.push({country_code:country||null,regulation_name:name,status,remarks:remarks||''});});return rows;}
 
@@ -634,7 +638,7 @@ function renderTags(){document.getElementById('ms-tags').innerHTML=selectedCAS.m
 
 /* 每個「法規」以 (country_code, regulation_name) 組成唯一 key，同名法規在不同國家視為不同欄位 */
 function regKey(r){return `${r.country_code||''}__${r.regulation_name}`;}
-function regLabel(r){return r.country_code?`${COUNTRY_LABEL[r.country_code]||r.country_code} · ${r.regulation_name}`:r.regulation_name;}
+function regLabel(r){return r.country_code?`${COUNTRY_NAME[r.country_code]||r.country_code} · ${r.regulation_name}`:r.regulation_name;}
 
 let scanAllRegs=[];
 /* 選完成分後，依目前選到的物質實際擁有的法規，動態產生「篩選國家」「篩選法規」選單，篩選之後才執行熱圖掃描 */
@@ -646,7 +650,7 @@ async function refreshScanFilters(){
   const countrySel=document.getElementById('scan-filter-country');
   const curCountry=countrySel.value;
   const countries=[...new Set(scanAllRegs.map(r=>r.country_code||''))];
-  countrySel.innerHTML='<option value="">全部國家</option>'+countries.map(c=>c?`<option value="${c}" ${c===curCountry?'selected':''}>${COUNTRY_LABEL[c]||c}</option>`:`<option value="__uncategorized__" ${curCountry==='__uncategorized__'?'selected':''}>未分類</option>`).join('');
+  countrySel.innerHTML='<option value="">全部國家</option>'+countries.map(c=>c?`<option value="${c}" ${c===curCountry?'selected':''}>${COUNTRY_NAME[c]||c}</option>`:`<option value="__uncategorized__" ${curCountry==='__uncategorized__'?'selected':''}>未分類</option>`).join('');
   renderScanFilters();
   wrap.style.display=scanAllRegs.length?'block':'none';
 }
@@ -750,13 +754,23 @@ async function loadCountryList(){
   if(error){console.warn('載入國家清單失敗',error);return;}
   COUNTRY_LIST=(data||[]).map(r=>r.code);
   COUNTRY_LABEL={};(data||[]).forEach(r=>{COUNTRY_LABEL[r.code]=r.label;});
+  COUNTRY_NAME={};(data||[]).forEach(r=>{COUNTRY_NAME[r.code]=r.country_name||r.label;});
   return data||[];
 }
 function renderCountryManageList(rows){
   const el=document.getElementById('country-manage-list');
   if(!el)return;
-  el.innerHTML=(rows||[]).map(r=>`<span class="tag">${r.label}<span class="tag-remove" onclick="deleteCountry('${r.code.replace(/'/g,"\\'")}')">✕</span></span>`).join('')
+  el.innerHTML=(rows||[]).map(r=>`<span class="tag" style="align-items:center;gap:6px">${r.label}<input type="text" value="${r.country_name||''}" placeholder="純國家名稱" style="width:90px;padding:2px 6px;font-size:0.78rem;border-radius:6px" id="cn-${r.code}" /><span class="tag-remove" title="儲存純國家名稱" onclick="updateCountryName('${r.code.replace(/'/g,"\\'")}')" style="color:var(--forest)">✓</span><span class="tag-remove" onclick="deleteCountry('${r.code.replace(/'/g,"\\'")}')">✕</span></span>`).join('')
     || '<span style="color:var(--text-muted);font-size:0.82rem">尚無國家，請於下方新增</span>';
+}
+async function updateCountryName(code){
+  const input=document.getElementById('cn-'+code);
+  const name=input?.value.trim();
+  if(!name)return toast('請輸入純國家名稱',true);
+  const{error}=await sb.from('country_list_db').update({country_name:name}).eq('code',code);
+  if(error)return toast('更新失敗：'+error.message,true);
+  await loadCountryList();refreshImpCountrySelect();await refreshCountryManageUI();
+  toast('已更新純國家名稱！');
 }
 async function refreshCountryManageUI(){
   const{data}=await sb.from('country_list_db').select('*').order('sort_order',{ascending:true,nullsFirst:false}).order('code',{ascending:true});
@@ -769,11 +783,12 @@ function refreshImpCountrySelect(){
 async function addCountry(){
   const code=document.getElementById('new-country-code').value.trim().toUpperCase();
   const label=document.getElementById('new-country-label').value.trim();
+  const countryName=document.getElementById('new-country-name').value.trim();
   if(!code||!label)return toast('請填寫國家代碼與顯示名稱',true);
   if(COUNTRY_LIST.includes(code))return toast('此代碼已存在',true);
-  const{error}=await sb.from('country_list_db').insert({code,label});
+  const{error}=await sb.from('country_list_db').insert({code,label,country_name:countryName||label});
   if(error)return toast('新增失敗：'+(error.code==='23505'?'此代碼已存在':error.message),true);
-  document.getElementById('new-country-code').value='';document.getElementById('new-country-label').value='';
+  document.getElementById('new-country-code').value='';document.getElementById('new-country-label').value='';document.getElementById('new-country-name').value='';
   await loadCountryList();refreshImpCountrySelect();await refreshCountryManageUI();
   toast('已新增國家！');
 }
