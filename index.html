@@ -51,6 +51,9 @@
     .modal-box .modal-actions { display: flex; gap: 8px; margin-top: 20px; }
     .modal-box .modal-actions .btn-auth { flex: 1; }
     #login-error { color: var(--hm-noncompliant); font-size: 0.76rem; margin-top: 10px; min-height: 1em; }
+    .login-input { width: 100%; padding: 11px 14px; border: 1.5px solid var(--cream-dark); border-radius: 10px; font-family: 'Inter', sans-serif; font-size: 0.9rem; color: var(--text-primary); background: #fff; transition: border-color 0.2s; outline: none; }
+    .login-input:focus { border-color: var(--green-light); }
+    .login-input::placeholder { color: var(--text-muted); }
 
     #page-home { padding: 0 40px 48px; }
 
@@ -218,9 +221,9 @@
   <div class="modal-box">
     <h2>登入</h2>
     <label>Email</label>
-    <input type="text" id="login-email" placeholder="you@example.com" />
+    <input type="text" class="login-input" id="login-email" placeholder="you@example.com" />
     <label>密碼</label>
-    <input type="password" id="login-password" placeholder="密碼" />
+    <input type="password" class="login-input" id="login-password" placeholder="密碼" />
     <div id="login-error"></div>
     <div class="modal-actions">
       <button class="btn-auth secondary" onclick="closeLoginModal()">取消</button>
