@@ -534,12 +534,39 @@
     <!-- 混合物危害計算 -->
     <div class="inv-subpage" id="hz-tab-hz-calc">
       <div class="card">
+        <h2>計算方式</h2>
+        <div class="inv-tabs" style="margin-bottom:0">
+          <button class="inv-tab-btn active" data-hzmode="product" onclick="hzSwitchMode('product')">選擇既有產品組合</button>
+          <button class="inv-tab-btn" data-hzmode="manual" onclick="hzSwitchMode('manual')">直接輸入物質與濃度</button>
+        </div>
+      </div>
+
+      <div class="card" id="hzcalc-mode-product">
         <h2>選擇產品組合</h2>
         <label>產品</label>
         <select id="hzcalc-product-select" onchange="hzLoadProduct()"><option value="">請選擇產品...</option></select>
-        <div class="form-grid-2" style="margin-top:14px">
+      </div>
+
+      <div class="card" id="hzcalc-mode-manual" style="display:none">
+        <h2>輸入物質與濃度</h2>
+        <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:12px;line-height:1.6">直接搜尋/輸入 CAS No. 並填寫各成分濃度（%），不需先建立產品組合。危害分類計算僅支援有 CAS No. 的成分（沿用「物質危害分類建檔」資料）。</p>
+        <label>成分（CAS No.）</label>
+        <div class="multiselect-wrapper">
+          <div class="multiselect-input" id="mz-ms-input" onclick="document.getElementById('mz-ms-search').focus()">
+            <div id="mz-ms-tags"></div>
+            <input class="multiselect-search" id="mz-ms-search" placeholder="輸入 CAS No. 或物質名稱搜尋..." oninput="mzFilterOptions()" onfocus="mzOpenDropdown()" />
+          </div>
+          <div class="multiselect-dropdown" id="mz-ms-dropdown"></div>
+        </div>
+        <br/>
+        <div id="mz-pct-rows"></div>
+        <button class="btn-primary" onclick="hzRunManualCalculation()" style="margin-top:10px">計算混合物危害分級</button>
+      </div>
+
+      <div class="card" id="hzcalc-visc-card">
+        <div class="form-grid-2">
           <div><label>混合物動黏度 40°C（mm²/s，選填，用於吸入性危害判定）</label><input type="text" id="hzcalc-viscosity" placeholder="例如：18.5" /></div>
-          <div style="align-self:end"><button class="btn-secondary" onclick="hzSaveViscosity()">儲存動黏度到此產品</button></div>
+          <div style="align-self:end"><button class="btn-secondary" id="hzcalc-visc-save-btn" onclick="hzSaveViscosity()">儲存動黏度到此產品</button></div>
         </div>
       </div>
       <div id="hzcalc-warnings"></div>
@@ -1768,7 +1795,7 @@ function shouldDisplayInSDS(ingredient){
 
 /* ---------- Tab 切換 ---------- */
 function showHzTab(name){
-  document.querySelectorAll('#inner-hazcalc .inv-tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  document.querySelectorAll('#inner-hazcalc .inv-tab-btn[data-tab]').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
   document.querySelectorAll('#inner-hazcalc .inv-subpage').forEach(p=>p.classList.toggle('active', p.id==='hz-tab-'+name));
 }
 let hzSettingsCache = { stotCat3FromCat1IngredientEnabled:false };
@@ -1776,6 +1803,9 @@ async function initHazCalcPage(){
   hzcClearSubstance();
   await hzLoadProductSelect();
   await hzLoadSettings();
+  hzSwitchMode('product');
+  mzSelectedKeys=[]; mzPctValues={}; mzRenderTags(); mzRenderPctRows();
+  document.getElementById('hzcalc-viscosity').value='';
 }
 
 /* ---------- 物質危害分類建檔：搜尋 CAS ---------- */
@@ -1919,6 +1949,20 @@ async function hzLoadProductSelect(){
   sel.innerHTML = '<option value="">請選擇產品...</option>' + (data||[]).map(p=>`<option value="${p.id}">${p.product_name}</option>`).join('');
 }
 let hzCurrentProductId=null;
+let hzCurrentMode='product';
+function hzSwitchMode(mode){
+  hzCurrentMode=mode;
+  document.querySelectorAll('#hz-tab-hz-calc .inv-tab-btn[data-hzmode]').forEach(b=>b.classList.toggle('active', b.dataset.hzmode===mode));
+  document.getElementById('hzcalc-mode-product').style.display = mode==='product' ? '' : 'none';
+  document.getElementById('hzcalc-mode-manual').style.display = mode==='manual' ? '' : 'none';
+  document.getElementById('hzcalc-visc-save-btn').style.display = mode==='product' ? '' : 'none';
+  document.getElementById('hzcalc-result').style.display='none';
+  document.getElementById('hzcalc-warnings').innerHTML='';
+  if(mode==='manual'){
+    hzCurrentProductId=null;
+    document.getElementById('hzcalc-product-select').value='';
+  }
+}
 async function hzLoadProduct(){
   const pid = document.getElementById('hzcalc-product-select').value;
   document.getElementById('hzcalc-result').style.display='none';
@@ -1927,7 +1971,8 @@ async function hzLoadProduct(){
   hzCurrentProductId=pid;
   const{data:prod}=await sb.from('product_db').select('*').eq('id',pid).single();
   document.getElementById('hzcalc-viscosity').value = (prod && prod.viscosity_40c!=null) ? prod.viscosity_40c : '';
-  await hzRunCalculation();
+  const{data:comp}=await sb.from('product_composition').select('cas_no,description,percentage').eq('product_id',hzCurrentProductId);
+  await hzRunCalculation(comp||[]);
 }
 async function hzSaveViscosity(){
   if(!hzCurrentProductId) return toast('請先選擇產品',true);
@@ -1935,13 +1980,59 @@ async function hzSaveViscosity(){
   const{error}=await sb.from('product_db').update({viscosity_40c: v===''?null:Number(v)}).eq('id',hzCurrentProductId);
   if(error) return toast('儲存失敗：'+error.message,true);
   toast('動黏度已儲存');
-  await hzRunCalculation();
-}
-async function hzRunCalculation(){
-  if(!hzCurrentProductId) return;
   const{data:comp}=await sb.from('product_composition').select('cas_no,description,percentage').eq('product_id',hzCurrentProductId);
-  const rows = comp||[];
-  const casList = [...new Set(rows.filter(r=>r.cas_no).map(r=>r.cas_no))];
+  await hzRunCalculation(comp||[]);
+}
+/* ---- 直接輸入物質與濃度（不依賴既有產品組合） ---- */
+let mzSelectedKeys=[];
+let mzPctValues={};
+function mzOpenDropdown(){document.getElementById('mz-ms-dropdown').classList.add('open');mzFilterOptions();}
+const mzSearchDebounced=debounce(async(q)=>{
+  const dd=document.getElementById('mz-ms-dropdown'); if(!dd) return;
+  dd.innerHTML=q.trim().length<2?'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">請至少輸入 2 個字搜尋（CAS No. 或名稱）</div>':'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">搜尋中...</div>';
+  const html=await searchIdentifierOptions(q,mzSelectedKeys,'mzSelectSubstance');
+  dd.innerHTML=html;
+},300);
+function mzFilterOptions(){mzSearchDebounced(document.getElementById('mz-ms-search').value);}
+function mzSelectSubstance(key){
+  if(mzSelectedKeys.includes(key))return;
+  mzSelectedKeys.push(key);
+  mzRenderTags();mzRenderPctRows();
+  document.getElementById('mz-ms-search').value='';
+  mzFilterOptions();
+  document.getElementById('mz-ms-dropdown').classList.remove('open');
+}
+function mzRemoveTag(key){mzSelectedKeys=mzSelectedKeys.filter(k=>k!==key);mzRenderTags();mzRenderPctRows();}
+function mzRenderTags(){
+  document.getElementById('mz-ms-tags').innerHTML=mzSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="mzRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');
+}
+function mzRenderPctRows(){
+  document.getElementById('mz-pct-rows').innerHTML=mzSelectedKeys.map(key=>`<div class="form-grid-2" style="align-items:end;margin-bottom:8px"><div style="font-size:0.85rem;padding-top:8px">${keyLabel(key)} <span style="color:var(--text-muted);font-size:0.75rem">(${keyKind(key)==='cas'?keyVal(key):'無 CAS'})</span></div><div><input type="text" class="pct-input" data-key="${key.replace(/"/g,'&quot;')}" placeholder="%（濃度，例如 15）" value="${(mzPctValues[key]!=null?mzPctValues[key]:'')}"/></div></div>`).join('');
+}
+async function hzRunManualCalculation(){
+  if(!mzSelectedKeys.length) return toast('請至少輸入一個成分',true);
+  document.querySelectorAll('#mz-pct-rows .pct-input').forEach(inp=>{
+    const key=inp.dataset.key;
+    mzPctValues[key]= inp.value===''?null:Number(inp.value);
+  });
+  const rows = mzSelectedKeys.map(key=>({
+    cas_no: keyKind(key)==='cas' ? keyVal(key) : null,
+    description: keyKind(key)==='desc' ? keyVal(key) : null,
+    percentage: mzPctValues[key]!=null ? mzPctValues[key] : null
+  }));
+  hzCurrentProductId=null;
+  await hzRunCalculation(rows);
+}
+async function hzRefreshCurrent(){
+  if(hzCurrentMode==='product' && hzCurrentProductId){
+    const{data:comp}=await sb.from('product_composition').select('cas_no,description,percentage').eq('product_id',hzCurrentProductId);
+    await hzRunCalculation(comp||[]);
+  }else if(hzCurrentMode==='manual' && mzSelectedKeys.length){
+    await hzRunManualCalculation();
+  }
+}
+async function hzRunCalculation(rows){
+  const casList = [...new Set((rows||[]).filter(r=>r.cas_no).map(r=>r.cas_no))];
   const{data:names}=await sb.from('substance_db').select('cas_no,item_name').in('cas_no',casList.length?casList:['__none__']);
   const nameMap={}; (names||[]).forEach(n=>nameMap[n.cas_no]=n.item_name);
   const{data:hazData}=await sb.from('substance_hazard_db').select('*').in('cas_no',casList.length?casList:['__none__']);
@@ -2020,7 +2111,7 @@ async function hzSaveSettings(){
   const{error}=await sb.from('hazard_calc_settings').upsert({id:1, stot_cat3_from_cat1_enabled:val});
   if(error) return toast('設定儲存失敗：'+error.message,true);
   toast('設定已更新');
-  if(hzCurrentProductId) await hzRunCalculation();
+  await hzRefreshCurrent();
 }
 </script>
 
