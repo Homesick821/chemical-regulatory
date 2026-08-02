@@ -501,7 +501,6 @@
     <div class="inv-tabs">
       <button class="inv-tab-btn active" data-tab="hz-classify" onclick="showHzTab('hz-classify')">物質危害分類建檔</button>
       <button class="inv-tab-btn" data-tab="hz-calc" onclick="showHzTab('hz-calc')">混合物危害計算</button>
-      <button class="inv-tab-btn" data-tab="hz-settings" onclick="showHzTab('hz-settings')">計算設定</button>
     </div>
 
     <!-- 物質危害分類建檔 -->
@@ -579,18 +578,6 @@
           <h2>SDS 應揭露成分（依 GHS Table 1.5.1 判定）</h2>
           <div id="hzcalc-sds-body"></div>
         </div>
-      </div>
-    </div>
-
-    <!-- 計算設定 -->
-    <div class="inv-subpage" id="hz-tab-hz-settings">
-      <div class="card">
-        <h2>進階規則開關</h2>
-        <div class="hz-toggle-row">
-          <input type="checkbox" id="hz-setting-stot3" onchange="hzSaveSettings()" />
-          <label style="margin:0;text-transform:none;font-weight:400;font-size:0.85rem;color:var(--text-primary)">STOT-SE / STOT-RE：Category 1 成分濃度落在 1.0%–10% 時，同時額外標記混合物為 Category 2（部分主管機關規範，非 GHS 正文通則）</label>
-        </div>
-        <p style="font-size:0.78rem;color:var(--text-muted);line-height:1.6">此設定為全站共用，異動後立即套用於所有後續計算。</p>
       </div>
     </div>
 
@@ -1626,23 +1613,27 @@ function computeReproductive(ingredients){
   return computeSingleTrigger(ingredients,'repro','reprod',{'1A':0.1,'1B':0.1,'2':0.1,'Additional':0.1},['1A','1B','2','Additional']);
 }
 
-function computeSTOT(ingredients, hazardClass, subType, settings){
+function computeSTOT(ingredients, hazardClass, subType){
   const list = entriesFor(ingredients, hazardClass, subType);
   const out=[];
-  const cat1list = list.filter(x=>x.category==='1' && x.pct>=1);
-  const cat2list = list.filter(x=>x.category==='2' && x.pct>=1);
-  if(cat1list.length) out.push({ hazardClass, subType, category:'1', hCode: cat1list[0].hCode||'H370', contributing:cat1list.map(x=>x.cas) });
-  if(cat2list.length) out.push({ hazardClass, subType, category:'2', hCode: cat2list[0].hCode||'H371', contributing:cat2list.map(x=>x.cas) });
+  const cat1list = list.filter(x=>x.category==='1');
+  const cat2list = list.filter(x=>x.category==='2');
+
+  const cat1Trigger = cat1list.filter(x=>x.pct>=10);             // Cat.1 成分 ≥10% → 混合物 Category 1（GHS Table 3.8.2/3.9.3, Note 2/5 門檻）
+  const cat1To2      = cat1list.filter(x=>x.pct>=1 && x.pct<10);  // Cat.1 成分 1.0%~10% → 混合物 Category 2（Note 3，恆定套用）
+  const cat2Trigger = cat2list.filter(x=>x.pct>=10);             // Cat.2 成分 ≥10% → 混合物 Category 2（Note 2/5 門檻）
+
+  if(cat1Trigger.length) out.push({ hazardClass, subType, category:'1', hCode: cat1Trigger[0].hCode||'H370', contributing:cat1Trigger.map(x=>x.cas) });
+
+  const cat2Contrib = [...cat1To2, ...cat2Trigger];
+  if(cat2Contrib.length) out.push({ hazardClass, subType, category:'2', hCode: (cat2Trigger[0]||cat1To2[0]).hCode||(hazardClass==='stotse'?'H371':'H373'), contributing:cat2Contrib.map(x=>x.cas) });
+
   if(hazardClass==='stotse'){
     ['3-H335','3-H336'].forEach(cv=>{
       const l=list.filter(x=>x.category===cv && x.pct>=1);
       const sum=l.reduce((s,x)=>s+x.pct,0);
       if(sum>=20) out.push({ hazardClass, subType, category:cv, hCode: cv==='3-H335'?'H335':'H336', contributing:l.map(x=>x.cas) });
     });
-  }
-  if(settings && settings.stotCat3FromCat1IngredientEnabled){
-    const between = cat1list.filter(x=>x.pct>=1 && x.pct<10);
-    if(between.length) out.push({ hazardClass, subType, category:'2', hCode: hazardClass==='stotse'?'H371':'H373', note:'依 note3 開關由 Category1 成分1~10%觸發', contributing:between.map(x=>x.cas) });
   }
   return out;
 }
@@ -1680,7 +1671,6 @@ function computeAquatic(ingredients, subType, hcodes){
 
 function computeMixture(ingredients, opts){
   opts = opts || {};
-  const settings = opts.settings || {};
   const viscosity = opts.viscosity!=null && opts.viscosity!=='' ? Number(opts.viscosity) : null;
   const results = [];
   results.push(...computeAcuteToxicity(ingredients));
@@ -1690,8 +1680,8 @@ function computeMixture(ingredients, opts){
   results.push(...computeMutagenicity(ingredients));
   results.push(...computeCarcinogenicity(ingredients));
   results.push(...computeReproductive(ingredients));
-  results.push(...computeSTOT(ingredients,'stotse','se',settings));
-  results.push(...computeSTOT(ingredients,'stotre','re',settings));
+  results.push(...computeSTOT(ingredients,'stotse','se'));
+  results.push(...computeSTOT(ingredients,'stotre','re'));
   const asp = computeAspiration(ingredients, viscosity);
   results.push(...asp.results);
   const aqA = computeAquatic(ingredients,'acuteAq',['H400','H401','H402']);
@@ -1798,11 +1788,9 @@ function showHzTab(name){
   document.querySelectorAll('#inner-hazcalc .inv-tab-btn[data-tab]').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
   document.querySelectorAll('#inner-hazcalc .inv-subpage').forEach(p=>p.classList.toggle('active', p.id==='hz-tab-'+name));
 }
-let hzSettingsCache = { stotCat3FromCat1IngredientEnabled:false };
 async function initHazCalcPage(){
   hzcClearSubstance();
   await hzLoadProductSelect();
-  await hzLoadSettings();
   hzSwitchMode('product');
   mzSelectedKeys=[]; mzPctValues={}; mzRenderTags(); mzRenderPctRows();
   document.getElementById('hzcalc-viscosity').value='';
@@ -2050,8 +2038,7 @@ async function hzRunCalculation(rows){
   });
 
   const viscosity = document.getElementById('hzcalc-viscosity').value;
-  const settings = hzSettingsCache;
-  const { results, aspirationInfo } = computeMixture(ingredients, { settings, viscosity });
+  const { results, aspirationInfo } = computeMixture(ingredients, { viscosity });
 
   collectSCLGapWarnings(ingredients).forEach(g=>{
     const name = nameMap[g.cas] || g.cas;
@@ -2099,20 +2086,6 @@ function hzRenderSDS(ingredients){
   }).join('');
 }
 
-/* ---------- 計算設定 ---------- */
-async function hzLoadSettings(){
-  const{data}=await sb.from('hazard_calc_settings').select('*').eq('id',1).single();
-  hzSettingsCache.stotCat3FromCat1IngredientEnabled = !!(data && data.stot_cat3_from_cat1_enabled);
-  document.getElementById('hz-setting-stot3').checked = hzSettingsCache.stotCat3FromCat1IngredientEnabled;
-}
-async function hzSaveSettings(){
-  const val = document.getElementById('hz-setting-stot3').checked;
-  hzSettingsCache.stotCat3FromCat1IngredientEnabled = val;
-  const{error}=await sb.from('hazard_calc_settings').upsert({id:1, stot_cat3_from_cat1_enabled:val});
-  if(error) return toast('設定儲存失敗：'+error.message,true);
-  toast('設定已更新');
-  await hzRefreshCurrent();
-}
 </script>
 
 </body>
