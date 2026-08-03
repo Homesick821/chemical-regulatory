@@ -123,7 +123,8 @@
     .multiselect-wrapper { position: relative; }
     .multiselect-input { width: 100%; padding: 9px 13px; border: 1.5px solid var(--cream-dark); border-radius: 10px; background: var(--cream); cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px; min-height: 42px; align-items: center; }
     .multiselect-input:focus-within { border-color: var(--green-mid); background: #fff; }
-    .tag { background: var(--green-deep); color: #fff; border-radius: 100px; padding: 3px 10px; font-size: 0.75rem; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; font-family: 'Noto Serif TC', serif; }
+    .tag { background: var(--green-deep); color: #fff; border-radius: 100px; padding: 3px 10px; font-size: 0.75rem; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; font-family: 'Noto Serif TC', serif; cursor: pointer; box-shadow: 0 0 0 0 transparent; transition: box-shadow 0.15s; }
+    .tag.active { box-shadow: 0 0 0 2px var(--amber); background: var(--green-mid); }
     .tag-remove { cursor: pointer; opacity: 0.7; }
     .tag-remove:hover { opacity: 1; }
     .multiselect-search { border: none; outline: none; background: transparent; font-size: 0.85rem; flex: 1; min-width: 100px; font-family: 'Noto Serif TC', serif; }
@@ -131,7 +132,11 @@
     .multiselect-dropdown.open { display: block; }
     .dropdown-item { padding: 9px 13px; font-size: 0.85rem; cursor: pointer; border-radius: 8px; margin: 3px; transition: background 0.15s; font-family: 'Noto Serif TC', serif; }
     .dropdown-item:hover { background: var(--cream); }
+    .dropdown-item.active { background: var(--cream-dark); }
     .dropdown-item.selected { color: var(--text-muted); pointer-events: none; }
+    .ms-clear-all { display: none; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.95rem; flex-shrink: 0; transition: all 0.15s; }
+    .ms-clear-all:hover { background: #fde8e8; color: #A63D2F; }
+    .ms-clear-all.show { display: inline-flex; }
 
     .heatmap-wrapper { overflow-x: auto; }
     .heatmap-table { border-collapse: separate; border-spacing: 4px; }
@@ -325,6 +330,7 @@
           <div class="multiselect-input" id="ms-input" onclick="focusSearch()">
             <div id="ms-tags"></div>
             <input class="multiselect-search" id="ms-search" placeholder="搜尋..." oninput="filterOptions()" onfocus="openDropdown()" />
+            <button type="button" class="ms-clear-all" id="ms-clear-all" title="清除全部">✕</button>
           </div>
           <div class="multiselect-dropdown" id="ms-dropdown"></div>
         </div>
@@ -395,6 +401,7 @@
           <div class="multiselect-input" id="inv-ms-input" onclick="document.getElementById('inv-ms-search').focus()">
             <div id="inv-ms-tags"></div>
             <input class="multiselect-search" id="inv-ms-search" placeholder="輸入 CAS No. 或 Description 搜尋..." oninput="invFilterOptions()" onfocus="invOpenDropdown()" />
+            <button type="button" class="ms-clear-all" id="inv-ms-clear-all" title="清除全部">✕</button>
           </div>
           <div class="multiselect-dropdown" id="inv-ms-dropdown"></div>
         </div>
@@ -456,6 +463,7 @@
           <div class="multiselect-input" id="pc-ms-input" onclick="document.getElementById('pc-ms-search').focus()">
             <div id="pc-ms-tags"></div>
             <input class="multiselect-search" id="pc-ms-search" placeholder="輸入 CAS No. 或 Description 搜尋..." oninput="pcFilterOptions()" onfocus="pcOpenDropdown()" />
+            <button type="button" class="ms-clear-all" id="pc-ms-clear-all" title="清除全部">✕</button>
           </div>
           <div class="multiselect-dropdown" id="pc-ms-dropdown"></div>
         </div>
@@ -578,6 +586,7 @@
           <div class="multiselect-input" id="mz-ms-input" onclick="document.getElementById('mz-ms-search').focus()">
             <div id="mz-ms-tags"></div>
             <input class="multiselect-search" id="mz-ms-search" placeholder="輸入 CAS No. 或物質名稱搜尋..." oninput="mzFilterOptions()" onfocus="mzOpenDropdown()" />
+            <button type="button" class="ms-clear-all" id="mz-ms-clear-all" title="清除全部">✕</button>
           </div>
           <div class="multiselect-dropdown" id="mz-ms-dropdown"></div>
         </div>
@@ -754,11 +763,14 @@ const scanSearchDebounced=debounce(async(q)=>{
   const map={};[...(byCas.data||[]),...(byName.data||[])].forEach(s=>{map[s.cas_no]=s.item_name;scanNameCache[s.cas_no]=s.item_name;});
   const entries=Object.entries(map);
   dd.innerHTML=entries.length?entries.map(([cas,name])=>`<div class="dropdown-item ${selectedCAS.includes(cas)?'selected':''}" onclick="selectSubstance('${cas}','${name.replace(/'/g,"\\'")}')"><span style="font-size:0.72rem;color:var(--text-muted);margin-right:6px">${cas}</span>${name}</div>`).join(''):'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">找不到物質</div>';
+  window['msResetDropdownHighlight_ms-dropdown']&&window['msResetDropdownHighlight_ms-dropdown']();
 },300);
 function filterOptions(){scanSearchDebounced(document.getElementById('ms-search').value);}
 function selectSubstance(cas,name){if(selectedCAS.includes(cas))return;selectedCAS.push(cas);scanNameCache[cas]=name;renderTags();document.getElementById('ms-search').value='';filterOptions();refreshScanFilters();}
 function removeTag(cas){selectedCAS=selectedCAS.filter(c=>c!==cas);renderTags();filterOptions();refreshScanFilters();}
-function renderTags(){document.getElementById('ms-tags').innerHTML=selectedCAS.map(cas=>`<span class="tag">${scanNameCache[cas]||cas}<span class="tag-remove" onclick="removeTag('${cas}')">✕</span></span>`).join('');}
+function renderTags(){document.getElementById('ms-tags').innerHTML=selectedCAS.map(cas=>`<span class="tag">${scanNameCache[cas]||cas}<span class="tag-remove" onclick="removeTag('${cas}')">✕</span></span>`).join('');scanMsCtrl&&scanMsCtrl.updateClearBtn();}
+function scanClearAll(){selectedCAS=[];renderTags();filterOptions();refreshScanFilters();}
+const scanMsCtrl=setupMultiselectKeyboard({searchId:'ms-search',dropdownId:'ms-dropdown',tagsId:'ms-tags',clearBtnId:'ms-clear-all',getKeys:()=>selectedCAS,removeAt:idx=>removeTag(selectedCAS[idx]),clearAll:scanClearAll});
 
 /* 每個「法規」以 (country_code, regulation_name) 組成唯一 key，同名法規在不同國家視為不同欄位 */
 function regKey(r){return `${r.country_code||''}__${r.regulation_name}`;}
@@ -1007,6 +1019,83 @@ async function backfillSubstanceRegistry(){
 /* 識別碼工具：物質可能用 CAS No. 或 Description 辨識（例如 EINECS 的 UVCB／無 CAS 物質） */
 const CAS_FORMAT_REGEX=/^\d{2,7}-\d{2}-\d$/;
 function debounce(fn,delay){let t;return(...args)=>{clearTimeout(t);t=setTimeout(()=>fn(...args),delay);};}
+
+/* ---- 共用：多選搜尋框鍵盤操作（Enter選取反白項／方向鍵反白／Backspace刪除／清除全部） ----
+   cfg: { searchId, dropdownId, tagsId, clearBtnId, getKeys:()=>[], removeAt:(idx)=>void, clearAll:()=>void } */
+function setupMultiselectKeyboard(cfg){
+  let activeTagIdx=-1, activeDdIdx=-1;
+  const searchEl=()=>document.getElementById(cfg.searchId);
+  const ddEl=()=>document.getElementById(cfg.dropdownId);
+  const tagsEl=()=>document.getElementById(cfg.tagsId);
+  const clearBtn=()=>cfg.clearBtnId?document.getElementById(cfg.clearBtnId):null;
+
+  function updateClearBtn(){const b=clearBtn();if(b)b.classList.toggle('show',cfg.getKeys().length>0);}
+  function highlightTag(idx){
+    activeTagIdx=idx;
+    const spans=tagsEl()?tagsEl().querySelectorAll('.tag'):[];
+    spans.forEach((s,i)=>s.classList.toggle('active',i===idx));
+  }
+  function highlightDropdown(idx){
+    const dd=ddEl();if(!dd)return;
+    const items=dd.querySelectorAll('.dropdown-item:not(.selected)');
+    if(!items.length){activeDdIdx=-1;return;}
+    if(idx<0)idx=items.length-1;
+    if(idx>=items.length)idx=0;
+    activeDdIdx=idx;
+    items.forEach((it,i)=>it.classList.toggle('active',i===idx));
+    items[idx].scrollIntoView({block:'nearest'});
+  }
+  // 每次下拉選單內容更新後呼叫，預設反白第一筆
+  window['msResetDropdownHighlight_'+cfg.dropdownId]=function(){activeDdIdx=-1;highlightDropdown(0);};
+
+  const se=searchEl();
+  if(se){
+    se.addEventListener('keydown',e=>{
+      const dd=ddEl();
+      const isOpen=dd&&dd.classList.contains('open');
+      if(e.key==='ArrowDown'&&isOpen){e.preventDefault();highlightDropdown(activeDdIdx+1);return;}
+      if(e.key==='ArrowUp'&&isOpen){e.preventDefault();highlightDropdown(activeDdIdx-1);return;}
+      if(e.key==='Enter'){
+        if(isOpen){
+          const items=dd.querySelectorAll('.dropdown-item:not(.selected)');
+          if(items.length){e.preventDefault();const idx=activeDdIdx>=0?activeDdIdx:0;items[idx].click();activeDdIdx=-1;}
+        }
+        return;
+      }
+      if(e.key==='Backspace'&&se.value===''){
+        const keys=cfg.getKeys();
+        if(!keys.length)return;
+        e.preventDefault();
+        if(activeTagIdx>=0){cfg.removeAt(activeTagIdx);activeTagIdx=-1;}
+        else{cfg.removeAt(keys.length-1);}
+        return;
+      }
+      if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&se.value===''){
+        const keys=cfg.getKeys();
+        if(!keys.length)return;
+        e.preventDefault();
+        if(activeTagIdx===-1)activeTagIdx=e.key==='ArrowLeft'?keys.length-1:0;
+        else{activeTagIdx+=e.key==='ArrowLeft'?-1:1;activeTagIdx=Math.max(0,Math.min(keys.length-1,activeTagIdx));}
+        highlightTag(activeTagIdx);
+        return;
+      }
+    });
+  }
+  const te=tagsEl();
+  if(te){
+    te.addEventListener('click',e=>{
+      if(e.target.closest('.tag-remove'))return;
+      const tagEl=e.target.closest('.tag');
+      if(!tagEl)return;
+      const idx=Array.from(te.querySelectorAll('.tag')).indexOf(tagEl);
+      highlightTag(idx===activeTagIdx?-1:idx);
+    });
+  }
+  const cb=clearBtn();
+  if(cb){cb.addEventListener('click',e=>{e.stopPropagation();cfg.clearAll();});}
+  updateClearBtn();
+  return {updateClearBtn};
+}
 let keyNameCache={};
 function mkKey(kind,val){return kind+'::'+val;}
 function keyKind(k){return k.split('::')[0];}
@@ -1075,11 +1164,14 @@ const invSearchDebounced=debounce(async(q)=>{
   dd.innerHTML=q.trim().length<2?'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">請至少輸入 2 個字搜尋（CAS No. 或名稱／Description）</div>':'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">搜尋中...</div>';
   const html=await searchIdentifierOptions(q,invSelectedKeys,'invSelectSubstance');
   dd.innerHTML=html;
+  window['msResetDropdownHighlight_inv-ms-dropdown']&&window['msResetDropdownHighlight_inv-ms-dropdown']();
 },300);
 function invFilterOptions(){invSearchDebounced(document.getElementById('inv-ms-search').value);}
 function invSelectSubstance(key){if(invSelectedKeys.includes(key))return;invSelectedKeys.push(key);invRenderTags();document.getElementById('inv-ms-search').value='';invFilterOptions();}
 function invRemoveTag(key){invSelectedKeys=invSelectedKeys.filter(k=>k!==key);invRenderTags();invFilterOptions();}
-function invRenderTags(){document.getElementById('inv-ms-tags').innerHTML=invSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="invRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');}
+function invRenderTags(){document.getElementById('inv-ms-tags').innerHTML=invSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="invRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');invMsCtrl&&invMsCtrl.updateClearBtn();}
+function invClearAll(){invSelectedKeys=[];invRenderTags();invFilterOptions();}
+const invMsCtrl=setupMultiselectKeyboard({searchId:'inv-ms-search',dropdownId:'inv-ms-dropdown',tagsId:'inv-ms-tags',clearBtnId:'inv-ms-clear-all',getKeys:()=>invSelectedKeys,removeAt:idx=>invRemoveTag(invSelectedKeys[idx]),clearAll:invClearAll});
 
 async function fetchInvData(keys){
   const casList=keys.filter(k=>keyKind(k)==='cas').map(keyVal);
@@ -1207,11 +1299,14 @@ const pcSearchDebounced=debounce(async(q)=>{
   dd.innerHTML=q.trim().length<2?'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">請至少輸入 2 個字搜尋（CAS No. 或名稱／Description）</div>':'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">搜尋中...</div>';
   const html=await searchIdentifierOptions(q,pcSelectedKeys,'pcSelectSubstance');
   dd.innerHTML=html;
+  window['msResetDropdownHighlight_pc-ms-dropdown']&&window['msResetDropdownHighlight_pc-ms-dropdown']();
 },300);
 function pcFilterOptions(){pcSearchDebounced(document.getElementById('pc-ms-search').value);}
 function pcSelectSubstance(key){if(pcSelectedKeys.includes(key))return;pcSelectedKeys.push(key);pcRenderTags();pcRenderPctRows();document.getElementById('pc-ms-search').value='';pcFilterOptions();}
 function pcRemoveTag(key){pcSelectedKeys=pcSelectedKeys.filter(k=>k!==key);pcRenderTags();pcRenderPctRows();pcFilterOptions();}
-function pcRenderTags(){document.getElementById('pc-ms-tags').innerHTML=pcSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="pcRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');}
+function pcRenderTags(){document.getElementById('pc-ms-tags').innerHTML=pcSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="pcRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');pcMsCtrl&&pcMsCtrl.updateClearBtn();}
+function pcClearAll(){pcSelectedKeys=[];pcRenderTags();pcRenderPctRows();pcFilterOptions();}
+const pcMsCtrl=setupMultiselectKeyboard({searchId:'pc-ms-search',dropdownId:'pc-ms-dropdown',tagsId:'pc-ms-tags',clearBtnId:'pc-ms-clear-all',getKeys:()=>pcSelectedKeys,removeAt:idx=>pcRemoveTag(pcSelectedKeys[idx]),clearAll:pcClearAll});
 function pcRenderPctRows(){
   document.getElementById('pc-pct-rows').innerHTML=pcSelectedKeys.map(key=>`<div class="form-grid-2" style="align-items:end;margin-bottom:8px"><div style="font-size:0.85rem;padding-top:8px">${keyLabel(key)} <span style="color:var(--text-muted);font-size:0.75rem">(${keyKind(key)==='cas'?keyVal(key):'無 CAS'})</span></div><div><input type="text" class="pct-input" data-key="${key.replace(/"/g,'&quot;')}" placeholder="%（選填）" value="${(pcPctValues[key]!=null?pcPctValues[key]:'')}"/></div></div>`).join('');
 }
@@ -2039,6 +2134,7 @@ const mzSearchDebounced=debounce(async(q)=>{
   dd.innerHTML=q.trim().length<2?'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">請至少輸入 2 個字搜尋（CAS No. 或名稱）</div>':'<div style="padding:10px 13px;color:var(--text-muted);font-size:0.83rem">搜尋中...</div>';
   const html=await searchIdentifierOptions(q,mzSelectedKeys,'mzSelectSubstance');
   dd.innerHTML=html;
+  window['msResetDropdownHighlight_mz-ms-dropdown']&&window['msResetDropdownHighlight_mz-ms-dropdown']();
 },300);
 function mzFilterOptions(){mzSearchDebounced(document.getElementById('mz-ms-search').value);}
 function mzSelectSubstance(key){
@@ -2052,7 +2148,10 @@ function mzSelectSubstance(key){
 function mzRemoveTag(key){mzSelectedKeys=mzSelectedKeys.filter(k=>k!==key);mzRenderTags();mzRenderPctRows();}
 function mzRenderTags(){
   document.getElementById('mz-ms-tags').innerHTML=mzSelectedKeys.map(key=>`<span class="tag">${keyLabel(key)}${keyKind(key)==='desc'?' <span class="flag-badge" style="margin-left:4px">無CAS</span>':''}<span class="tag-remove" onclick="mzRemoveTag('${key.replace(/'/g,"\\'")}')">✕</span></span>`).join('');
+  mzMsCtrl&&mzMsCtrl.updateClearBtn();
 }
+function mzClearAll(){mzSelectedKeys=[];mzRenderTags();mzRenderPctRows();}
+const mzMsCtrl=setupMultiselectKeyboard({searchId:'mz-ms-search',dropdownId:'mz-ms-dropdown',tagsId:'mz-ms-tags',clearBtnId:'mz-ms-clear-all',getKeys:()=>mzSelectedKeys,removeAt:idx=>mzRemoveTag(mzSelectedKeys[idx]),clearAll:mzClearAll});
 function mzRenderPctRows(){
   document.getElementById('mz-pct-rows').innerHTML=mzSelectedKeys.map(key=>`<div class="form-grid-2" style="align-items:end;margin-bottom:8px"><div style="font-size:0.85rem;padding-top:8px">${keyLabel(key)} <span style="color:var(--text-muted);font-size:0.75rem">(${keyKind(key)==='cas'?keyVal(key):'無 CAS'})</span></div><div><input type="text" class="pct-input" data-key="${key.replace(/"/g,'&quot;')}" placeholder="%（濃度，例如 15）" value="${(mzPctValues[key]!=null?mzPctValues[key]:'')}"/></div></div>`).join('');
 }
