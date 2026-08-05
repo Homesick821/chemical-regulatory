@@ -1733,12 +1733,26 @@ function computeEyeDamage(ingredients){
   return [{ hazardClass:'skineye', subType:'eye', category:out.category, hCode:out.hCode, contributing:[...skin1,...eye1,...eye2].map(x=>x.cas) }];
 }
 
-const SENS_THRESHOLD = { skin:{'1':0.1,'1A':0.1,'1B':1.0}, respiratory:{'1':0.1,'1A':0.1,'1B':1.0} };
+// 2026/08 修正:未分子類 Category 1('1')原本誤用 0.1%(那是部分主管機關「可能額外」要求的附加揭露門檻,
+// GHS Rev.11 Table 3.4.5 NOTE 原文用字是 "may require...only"，非通則)。正牌分級門檻是 1.0%(固液)/0.2%(氣體)。
+// 呼吸道過敏的氣體 vs 固液門檻不同，respiratory 需依成分物理狀態(physicalState: 'gas' | 'solid'/'liquid')查表。
+const SENS_THRESHOLD = {
+  skin:{'1':1.0,'1A':0.1,'1B':1.0},
+  respiratory:{ solidLiquid:{'1':1.0,'1A':0.1,'1B':1.0}, gas:{'1':0.2,'1A':0.1,'1B':0.2} }
+};
 function computeSensitization(ingredients){
   const out=[];
   ['skin','respiratory'].forEach(subType=>{
     const list = entriesFor(ingredients,'sens',subType);
-    const triggered = list.filter(x=>x.pct >= (SENS_THRESHOLD[subType][x.category]!=null?SENS_THRESHOLD[subType][x.category]:0.1));
+    const thresholds = subType==='respiratory'
+      ? null // resolved per-ingredient below via physicalState
+      : SENS_THRESHOLD.skin;
+    const triggered = list.filter(x=>{
+      const t = subType==='respiratory'
+        ? SENS_THRESHOLD.respiratory[x.physicalState==='gas' ? 'gas' : 'solidLiquid']
+        : thresholds;
+      return x.pct >= (t[x.category]!=null ? t[x.category] : 1.0);
+    });
     if(!triggered.length) return;
     const order=['1A','1B','1'];
     triggered.sort((a,b)=>order.indexOf(a.category)-order.indexOf(b.category));
@@ -1760,11 +1774,16 @@ function computeSingleTrigger(ingredients, hazardClass, subType, thresholds, ord
 function computeMutagenicity(ingredients){
   return computeSingleTrigger(ingredients,'mutagen','germmut',{'1A':0.1,'1B':0.1,'2':1.0},['1A','1B','2']);
 }
+// 2026/08 修正:GHS 正文 Table 3.6.1 對 Category 2 是「compromise classification scheme」(footnote a)，
+// 0.1%/1.0% 都是合法選項，正文本身無標準答案；ChemReg 已決定跟進 CLP，CLP Table 3.6.2 採用較高值 1.0% 作為
+// 實際分級門檻，0.1% 在 CLP 底下只觸發「SDS 應要求提供」義務，不影響分級，故不計入 Gate2。
 function computeCarcinogenicity(ingredients){
-  return computeSingleTrigger(ingredients,'carc','cmr',{'1A':0.1,'1B':0.1,'2':0.1},['1A','1B','2']);
+  return computeSingleTrigger(ingredients,'carc','cmr',{'1A':0.1,'1B':0.1,'2':1.0},['1A','1B','2']);
 }
+// 2026/08 修正:同上，GHS 正文 Table 3.7.1 同樣是 compromise scheme。ChemReg 跟進 CLP Table 3.7.2 的較高值：
+// Cat1A/1B/哺乳期附加分類 0.3%，Cat2 3.0%。0.1% 同上，僅觸發SDS應要求提供義務，不計入 Gate2。
 function computeReproductive(ingredients){
-  return computeSingleTrigger(ingredients,'repro','reprod',{'1A':0.1,'1B':0.1,'2':0.1,'Additional':0.1},['1A','1B','2','Additional']);
+  return computeSingleTrigger(ingredients,'repro','reprod',{'1A':0.3,'1B':0.3,'2':3.0,'Additional':0.3},['1A','1B','2','Additional']);
 }
 
 function computeSTOT(ingredients, hazardClass, subType){
